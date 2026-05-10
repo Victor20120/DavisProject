@@ -13,6 +13,64 @@ import {
 import { app } from './config';
 import type { MedData } from '../types';
 
+// ─── Invitations ──────────────────────────────────────────────────────────────
+
+export interface Invitation {
+  token: string;
+  inviterUid: string;
+  inviterName: string;
+  name: string;
+  relation: string;
+  phone: string;
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: unknown;
+}
+
+export async function createInvitation(
+  inviterUid: string,
+  inviterName: string,
+  data: { name: string; relation: string; phone: string },
+): Promise<string> {
+  const token = crypto.randomUUID();
+  const payload = { token, inviterUid, inviterName, ...data, status: 'pending', createdAt: serverTimestamp() };
+  await setDoc(doc(db, 'invitations', token), payload);
+  await setDoc(doc(db, 'users', inviterUid, 'invites', token), payload);
+  return token;
+}
+
+export async function getInvitation(token: string): Promise<Invitation | null> {
+  const snap = await getDoc(doc(db, 'invitations', token));
+  return snap.exists() ? (snap.data() as Invitation) : null;
+}
+
+export async function acceptInvitation(token: string, inviterUid: string, name: string, relation: string): Promise<void> {
+  await updateDoc(doc(db, 'invitations', token), { status: 'accepted' });
+  await updateDoc(doc(db, 'users', inviterUid, 'invites', token), { status: 'accepted' });
+  const memberId = token; // use token as stable ID for this family member slot
+  await setDoc(doc(db, 'users', inviterUid, 'family', memberId), {
+    id: memberId,
+    name,
+    relation,
+    email: '',
+    joinedAt: serverTimestamp(),
+  });
+}
+
+export async function declineInvitation(token: string, inviterUid: string): Promise<void> {
+  await updateDoc(doc(db, 'invitations', token), { status: 'declined' });
+  await updateDoc(doc(db, 'users', inviterUid, 'invites', token), { status: 'declined' });
+}
+
+export function onInvitesChanged(uid: string, cb: (invites: Invitation[]) => void): Unsubscribe {
+  return onSnapshot(collection(db, 'users', uid, 'invites'), snap => {
+    cb(snap.docs.map(d => d.data() as Invitation));
+  });
+}
+
+export async function storeFamilyPushSubscription(inviterUid: string, token: string, sub: object): Promise<void> {
+  await setDoc(doc(db, 'users', inviterUid, 'familyPush', token), sub);
+}
+
 export const db = getFirestore(app);
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -108,6 +166,24 @@ export async function removeMed(uid: string, genericName: string) {
 
 export async function updateMedReminderTime(uid: string, genericName: string, reminderTime: string) {
   await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), { reminderTime });
+}
+
+export async function markMedTaken(uid: string, genericName: string): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), {
+    lastTakenAt: serverTimestamp(),
+    lastTakenDate: today,
+  });
+}
+
+// Read another user's meds (for family members to see status)
+export function onFamilyMedStatus(
+  inviterUid: string,
+  cb: (meds: (MedData & { notes: string; reminderTime: string; lastTakenDate?: string })[]) => void,
+): Unsubscribe {
+  return onSnapshot(collection(db, 'users', inviterUid, 'meds'), snap => {
+    cb(snap.docs.map(d => d.data() as MedData & { notes: string; reminderTime: string; lastTakenDate?: string }));
+  });
 }
 
 // Real-time listener — calls cb whenever the user's med list changes

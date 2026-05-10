@@ -7,14 +7,14 @@ load_dotenv(os.path.join(_backend_dir, ".env"))  # explicit path — works from 
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import scan, chat, push, voice
+from routes import scan, chat, push, voice, family
 from workers import reminder_runner
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -23,6 +23,7 @@ app.include_router(scan.router)
 app.include_router(chat.router)
 app.include_router(push.router)
 app.include_router(voice.router)
+app.include_router(family.router)
 
 @app.on_event("startup")
 def startup():

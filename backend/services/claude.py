@@ -35,7 +35,7 @@ def scan_pill_bottle(base64_image: str, media_type: str = "image/jpeg") -> dict:
     print(f"[Pill Pal] Sending to Claude — media_type={media_type}, base64 length={len(base64_image)}")
 
     message = _client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[{
             "role": "user",
