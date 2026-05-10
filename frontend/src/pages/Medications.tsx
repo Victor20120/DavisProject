@@ -1,22 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { MedData, ConflictResult } from '../types';
-import ConflictAlert from '../components/ConflictAlert';
+import type { MedData } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { onMedsChanged, updateMedNotes, seedDemoData, saveMed, markMedTaken } from '../database/firestore';
 import { scanPillBottle } from '../services/api';
-
-// ─── Mock conflicts (until conflict checker is wired to Claude) ───────────────
-
-const MOCK_CONFLICTS: ConflictResult['conflicts'] = [
-  {
-    drug_a: 'Lisinopril',
-    drug_b: 'Ibuprofen',
-    severity: 'moderate',
-    description:
-      'Ibuprofen can reduce the blood pressure-lowering effect of Lisinopril and may increase risk of kidney problems.',
-  },
-];
 
 const CARD_COLORS = ['#0C447C', '#185FA5', '#2563EB'];
 
@@ -276,7 +263,6 @@ export default function Medications() {
         )}
 
         {/* Conflict banner */}
-        {!medsLoading && <ConflictAlert conflicts={MOCK_CONFLICTS} />}
 
         {/* Segmented control */}
         <div className="flex items-center gap-3 mb-7">
