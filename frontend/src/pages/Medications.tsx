@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MedData, ConflictResult } from '../types';
 import ConflictAlert from '../components/ConflictAlert';
+import { loadNotes, saveNotes } from '../utils/storage';
+import { scanPillBottle } from '../services/api';
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
@@ -77,35 +79,71 @@ export default function Medications() {
   const [isFlipped, setIsFlipped]         = useState(false);
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [viewMode, setViewMode]           = useState<'stack' | 'list'>('stack');
-  const navigate = useNavigate();
+  const [notesMap, setNotesMap]           = useState<Record<string, string>>({});
+  const [showAddMenu, setShowAddMenu]     = useState(false);
+  const [scanning, setScanning]           = useState(false);
+  const navigate   = useNavigate();
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const cameraRef  = useRef<HTMLInputElement>(null);
+  const uploadRef  = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    MOCK_MEDS.forEach(m => { map[m.generic_name] = loadNotes(m.generic_name); });
+    setNotesMap(map);
+  }, []);
+
+  useEffect(() => {
+    if (!showAddMenu) return;
+    function onOutsideClick(e: MouseEvent) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', onOutsideClick);
+    return () => document.removeEventListener('mousedown', onOutsideClick);
+  }, [showAddMenu]);
+
+  async function handleImageCapture(file: File) {
+    setShowAddMenu(false);
+    setScanning(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const med = await scanPillBottle(base64, file.type || 'image/jpeg');
+      sessionStorage.setItem('lastScan', JSON.stringify(med));
+      navigate('/pill-card');
+    } catch (err) {
+      console.error('[Pill Pal] Scan error from Medications:', err);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function handleNotesChange(genericName: string, text: string) {
+    setNotesMap(prev => ({ ...prev, [genericName]: text }));
+    saveNotes(genericName, text);
+  }
 
   const n = MOCK_MEDS.length;
 
-  // Apple Wallet layout:
-  //   Collapsed — back cards at TOP (small y, low z), front card at BOTTOM (large y, high z).
-  //   The card in front covers the body of the card behind it via z-index, so only the
-  //   colored header (name strip) of each back card peeks above the one in front.
-  //   Selected — expanded card rises to y=0; remaining cards queue below in the same style.
   const containerH =
     selectedIndex === null
-      ? (n - 1) * HEADER_H + CARD_H                          // back headers + full front card
-      : EXPANDED_H + GAP + (n - 2) * HEADER_H + CARD_H;     // expanded + queue
+      ? (n - 1) * HEADER_H + CARD_H
+      : EXPANDED_H + GAP + (n - 2) * HEADER_H + CARD_H;
 
   function getCardStyle(index: number) {
     if (selectedIndex === null) {
-      // index 0 = front card (bottom, highest z)  |  index n-1 = back card (top, lowest z)
       return {
         top:    (n - 1 - index) * HEADER_H,
         height: CARD_H,
-        zIndex: n - index,   // index 0 (front/bottom) → z=n (highest); index n-1 (back/top) → z=1
+        zIndex: n - index,
       };
     }
     if (index === selectedIndex) {
       return { top: 0, height: EXPANDED_H, zIndex: n + 1 };
     }
-    // Queue remaining cards in Apple Wallet style below the expanded card
     const others = MOCK_MEDS.map((_, i) => i).filter(i => i !== selectedIndex);
-    const pos = others.indexOf(index); // 0 = back of queue (top), last = front (bottom)
+    const pos = others.indexOf(index);
     return {
       top:    EXPANDED_H + GAP + pos * HEADER_H,
       height: CARD_H,
@@ -135,18 +173,97 @@ export default function Medications() {
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
       <div className="w-full max-w-[520px] mx-auto">
 
+        {/* Hidden file inputs */}
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleImageCapture(f); e.target.value = ''; }}
+        />
+        <input
+          ref={uploadRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleImageCapture(f); e.target.value = ''; }}
+        />
+
         {/* Header */}
         <header className="mb-5">
-          <div className="flex items-end justify-between">
+          <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-[24px] font-bold" style={{ color: '#0C447C' }}>My Medications</h1>
               <p className="text-[14px] mt-0.5" style={{ color: '#378ADD' }}>
                 {MOCK_MEDS.length} medications scanned
               </p>
             </div>
-            <span className="text-[28px] font-bold mb-0.5" style={{ color: '#D6E4F7' }}>
-              {MOCK_MEDS.length}
-            </span>
+
+            {/* Add button + dropdown */}
+            <div className="relative shrink-0 pt-1" ref={addMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowAddMenu(v => !v)}
+                disabled={scanning}
+                className="flex items-center gap-1.5 px-3.5 rounded-full font-semibold text-[14px] text-white disabled:opacity-60 transition-transform active:scale-95"
+                style={{ backgroundColor: '#185FA5', height: 36 }}
+              >
+                {scanning ? (
+                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <circle cx="7" cy="7" r="5.5" stroke="white" strokeWidth="1.6" strokeOpacity="0.3" />
+                    <path d="M7 1.5C4 1.5 1.5 4 1.5 7" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                )}
+                {scanning ? 'Scanning…' : 'Add'}
+              </button>
+
+              {/* Dropdown */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 10px)',
+                  right: 0,
+                  width: 230,
+                  backgroundColor: '#fff',
+                  borderRadius: 18,
+                  border: '0.5px solid #D6E4F7',
+                  boxShadow: '0 8px 36px rgba(12,68,124,0.18)',
+                  overflow: 'hidden',
+                  zIndex: 50,
+                  opacity: showAddMenu ? 1 : 0,
+                  transform: showAddMenu ? 'translateY(0) scale(1)' : 'translateY(-6px) scale(0.96)',
+                  transformOrigin: 'top right',
+                  pointerEvents: showAddMenu ? 'all' : 'none',
+                  transition: 'opacity 0.16s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                }}
+              >
+                <AddMenuOption
+                  icon={<PencilMenuIcon />}
+                  label="Add manually"
+                  sub="Type in med details"
+                  onClick={() => { setShowAddMenu(false); console.log('[Pill Pal] Manual add — coming soon'); }}
+                />
+                <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 14px' }} />
+                <AddMenuOption
+                  icon={<UploadMenuIcon />}
+                  label="Upload photo"
+                  sub="From your camera roll"
+                  onClick={() => { setShowAddMenu(false); uploadRef.current?.click(); }}
+                />
+                <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 14px' }} />
+                <AddMenuOption
+                  icon={<CameraMenuIcon />}
+                  label="Camera"
+                  sub="Point at pill bottle"
+                  onClick={() => { setShowAddMenu(false); cameraRef.current?.click(); }}
+                />
+              </div>
+            </div>
           </div>
         </header>
 
@@ -201,13 +318,11 @@ export default function Medications() {
                       zIndex,
                       borderRadius: 22,
                       cursor: 'pointer',
-                      // tap press/release scale — fast in, springy out
                       transform: isPressed ? 'scale(0.965)' : 'scale(1)',
                       transformOrigin: 'center center',
                       transition: isPressed
                         ? 'top 0.4s cubic-bezier(0.4,0,0.2,1), height 0.4s cubic-bezier(0.4,0,0.2,1), transform 0.08s ease, box-shadow 0.3s ease'
                         : 'top 0.4s cubic-bezier(0.4,0,0.2,1), height 0.4s cubic-bezier(0.4,0,0.2,1), transform 0.28s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease',
-                      // front card (i=0) gets strongest shadow; back cards recede
                       boxShadow: isSelected
                         ? '0 12px 40px rgba(12,68,124,0.25)'
                         : `0 4px 18px rgba(12,68,124,${0.18 - i * 0.04})`,
@@ -219,7 +334,6 @@ export default function Medications() {
                     onPointerCancel={() => setPressedIndex(null)}
                   >
                     {isSelected ? (
-                      /* 3-D flip wrapper */
                       <div style={{ width: '100%', height: '100%', perspective: '1200px' }}>
                         <div
                           style={{
@@ -236,13 +350,20 @@ export default function Medications() {
                             <ExpandedFront
                               med={med}
                               color={color}
+                              notes={notesMap[med.generic_name] ?? ''}
                               onClose={handleClose}
                               onViewFull={e => { e.stopPropagation(); navigate('/pill-card'); }}
                             />
                           </div>
                           {/* Back */}
                           <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)', borderRadius: 22, overflow: 'hidden' }}>
-                            <ExpandedBack med={med} color={color} onClose={handleClose} />
+                            <ExpandedBack
+                              med={med}
+                              color={color}
+                              notes={notesMap[med.generic_name] ?? ''}
+                              onNotesChange={text => handleNotesChange(med.generic_name, text)}
+                              onClose={handleClose}
+                            />
                           </div>
                         </div>
                       </div>
@@ -318,17 +439,17 @@ function CompactCard({ med, color }: { med: MedData; color: string }) {
 // ─── Expanded front face ──────────────────────────────────────────────────────
 
 function ExpandedFront({
-  med, color, onClose, onViewFull,
+  med, color, notes, onClose, onViewFull,
 }: {
   med: MedData;
   color: string;
+  notes: string;
   onClose: (e: React.MouseEvent) => void;
   onViewFull: (e: React.MouseEvent) => void;
 }) {
   const safe = med.conflicts.length === 0;
   return (
     <div className="flex flex-col" style={{ height: EXPANDED_H, backgroundColor: '#fff' }}>
-      {/* Header */}
       <div className="flex items-center gap-3 px-4 shrink-0" style={{ backgroundColor: color, height: HEADER_H }}>
         <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
           <PillIconWhite />
@@ -351,21 +472,30 @@ function ExpandedFront({
         </button>
       </div>
 
-      {/* Tags */}
       <div className="flex items-center gap-2 px-4 flex-wrap shrink-0" style={{ height: BODY_H, borderTop: '0.5px solid rgba(214,228,247,0.6)' }}>
         <MiniTag label={safe ? '✓ Safe' : '⚠ Conflict'} color={safe ? '#16A34A' : '#DC2626'} bg={safe ? '#F0FDF4' : '#FEF2F2'} />
         <MiniTag label={med.frequency} color="#185FA5" bg="#EFF6FF" />
         {med.take_with_food && <MiniTag label="Take with food" color="#D97706" bg="#FFFBEB" />}
       </div>
 
-      {/* Body */}
       <div className="flex-1 flex flex-col justify-between px-4 py-3">
-        <p className="text-[13px] leading-relaxed line-clamp-3" style={{ color: '#64748B' }}>
-          {med.how_to_take}
-        </p>
+        <div className="flex flex-col gap-2">
+          <p className="text-[13px] leading-relaxed line-clamp-2" style={{ color: '#64748B' }}>
+            {med.how_to_take}
+          </p>
+          {notes ? (
+            <p className="text-[13px] font-medium leading-snug line-clamp-2" style={{ color: '#DC2626' }}>
+              {notes}
+            </p>
+          ) : (
+            <p className="text-[12px] italic" style={{ color: '#C7D9EF' }}>
+              No notes yet — flip card to add
+            </p>
+          )}
+        </div>
         <div className="flex flex-col gap-2">
           <p className="text-center text-[12px] font-medium" style={{ color: '#C7D9EF' }}>
-            Tap card to flip for tailored advice
+            Tap card to flip for your info
           </p>
           <button
             type="button"
@@ -387,18 +517,16 @@ function ExpandedFront({
 // ─── Expanded back face ───────────────────────────────────────────────────────
 
 function ExpandedBack({
-  med,
-  color,
-  onClose,
+  med, color, notes, onNotesChange, onClose,
 }: {
   med: MedData;
   color: string;
+  notes: string;
+  onNotesChange: (text: string) => void;
   onClose: (e: React.MouseEvent) => void;
 }) {
   return (
     <div className="flex flex-col" style={{ height: EXPANDED_H, backgroundColor: color }}>
-
-      {/* Back header */}
       <div className="flex items-center justify-between px-5 shrink-0" style={{ height: HEADER_H }}>
         <div>
           <p className="text-white font-bold text-[16px]">{med.generic_name}</p>
@@ -416,26 +544,30 @@ function ExpandedBack({
         </button>
       </div>
 
-      {/* White info area */}
       <div
         className="flex-1 mx-3 mb-3 rounded-[16px] flex flex-col overflow-hidden"
         style={{ backgroundColor: '#fff' }}
+        onClick={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
+        onTouchStart={e => e.stopPropagation()}
       >
         <BackRow label="Next dose" value="8:00 PM" sub="Evening · in 4h 32m" />
         <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />
-        <BackRow label="Prescribing doctor" value="Dr. Sarah Mitchell" />
-        <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />
-        <BackRow label="Pharmacy" value="CVS Pharmacy #4821" />
+        <BackRow label="Frequency" value={med.frequency} />
         <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />
 
-        {/* Personal notes */}
         <div className="flex-1 flex flex-col px-4 py-3">
           <p className="text-[11px] font-bold uppercase tracking-widest mb-1.5" style={{ color: '#378ADD' }}>
             Personal notes
           </p>
-          <p className="text-[13px]" style={{ color: '#C4CDD6', fontStyle: 'italic' }}>
-            No notes yet — tap to add...
-          </p>
+          <textarea
+            value={notes}
+            onChange={e => onNotesChange(e.target.value)}
+            placeholder="Tap to add personal notes..."
+            rows={3}
+            className="flex-1 resize-none outline-none text-[13px] leading-relaxed"
+            style={{ color: '#0C447C', fontFamily: 'inherit', caretColor: color }}
+          />
         </div>
       </div>
     </div>
@@ -445,14 +577,81 @@ function ExpandedBack({
 function BackRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="flex items-center justify-between px-4 py-3 shrink-0">
-      <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#378ADD' }}>
-        {label}
-      </p>
+      <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#378ADD' }}>{label}</p>
       <div className="text-right">
         <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>{value}</p>
         {sub && <p className="text-[12px]" style={{ color: '#9CA3AF' }}>{sub}</p>}
       </div>
     </div>
+  );
+}
+
+// ─── Add-menu helpers ─────────────────────────────────────────────────────────
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function AddMenuOption({
+  icon, label, sub, onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  sub: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-3 text-left"
+      style={{ backgroundColor: 'transparent' }}
+      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F5F8FF')}
+      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+    >
+      <div className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0" style={{ backgroundColor: '#EFF6FF' }}>
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[14px] font-semibold leading-tight" style={{ color: '#0C447C' }}>{label}</p>
+        <p className="text-[12px] mt-0.5" style={{ color: '#378ADD' }}>{sub}</p>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
+        <path d="M5 3L9 7L5 11" stroke="#D6E4F7" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+function PencilMenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M13 2L16 5L6 15H3V12L13 2Z" stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+function UploadMenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M9 2V11M5.5 5.5L9 2L12.5 5.5" stroke="#185FA5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 13V15C3 15.55 3.45 16 4 16H14C14.55 16 15 15.55 15 15V13" stroke="#185FA5" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CameraMenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M17 14C17 14.8 16.3 15.5 15.5 15.5H2.5C1.7 15.5 1 14.8 1 14V6C1 5.2 1.7 4.5 2.5 4.5H5L6.5 2.5H11.5L13 4.5H15.5C16.3 4.5 17 5.2 17 6V14Z"
+        stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx="9" cy="9.5" r="2.5" stroke="#185FA5" strokeWidth="1.5" />
+    </svg>
   );
 }
 
@@ -469,8 +668,11 @@ function MiniTag({ label, color, bg }: { label: string; color: string; bg: strin
 function PillIconWhite() {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-      <rect x="2" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-45 2 8.5)" stroke="white" strokeWidth="1.6" />
-      <line x1="6" y1="16" x2="16" y2="6" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="4" y="8" width="14" height="6" rx="3"
+        transform="rotate(-45 11 11)"
+        stroke="white" strokeWidth="1.5" fill="none" />
+      <line x1="8.5" y1="8.5" x2="13.5" y2="13.5"
+        stroke="white" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

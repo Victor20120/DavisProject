@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PillCard from '../components/PillCard';
 import type { MedData } from '../types';
+import { loadNotes, saveNotes } from '../utils/storage';
 
 function getInitialMed(): MedData {
   try {
@@ -29,10 +30,20 @@ const MOCK_MED: MedData = {
 
 export default function PillCardPage() {
   const navigate = useNavigate();
-  const [med] = useState<MedData>(getInitialMed);
+  const [med]         = useState<MedData>(getInitialMed);
   const [showBack,    setShowBack]    = useState(false);
   const [isSquishing, setIsSquishing] = useState(false);
   const [isPressed,   setIsPressed]   = useState(false);
+  const [notes,       setNotes]       = useState('');
+
+  useEffect(() => {
+    setNotes(loadNotes(med.generic_name));
+  }, [med.generic_name]);
+
+  function handleNotesChange(text: string) {
+    setNotes(text);
+    saveNotes(med.generic_name, text);
+  }
 
   function handleFlip() {
     if (isSquishing) return;
@@ -93,7 +104,9 @@ export default function PillCardPage() {
             transition: 'transform 0.16s ease',
           }}
         >
-          {showBack ? <BackCard med={med} /> : <PillCard data={med} onOkay={() => navigate('/')} />}
+          {showBack
+            ? <BackCard med={med} notes={notes} onNotesChange={handleNotesChange} />
+            : <PillCard data={med} onOkay={() => navigate('/')} />}
         </div>
       </div>
     </div>
@@ -102,11 +115,19 @@ export default function PillCardPage() {
 
 // ─── Back face ────────────────────────────────────────────────────────────────
 
-function BackCard({ med }: { med: MedData }) {
+function BackCard({
+  med,
+  notes,
+  onNotesChange,
+}: {
+  med: MedData;
+  notes: string;
+  onNotesChange: (text: string) => void;
+}) {
   return (
     <div className="w-full overflow-hidden" style={{ borderRadius: 20 }}>
 
-      {/* Navy header */}
+      {/* Navy header — tapping this flips back */}
       <div className="px-5 pt-6 pb-5" style={{ backgroundColor: '#0C447C' }}>
         <div className="flex items-start gap-4 mb-1">
           <div
@@ -124,8 +145,16 @@ function BackCard({ med }: { med: MedData }) {
         </div>
       </div>
 
-      {/* White body */}
-      <div className="bg-white" style={{ border: '0.5px solid #D6E4F7', borderTop: 'none' }}>
+      {/* White body — block all pointer events so the card doesn't flip */}
+      <div
+        className="bg-white"
+        style={{ border: '0.5px solid #D6E4F7', borderTop: 'none' }}
+        onPointerDown={e => e.stopPropagation()}
+        onPointerUp={e => e.stopPropagation()}
+        onTouchStart={e => e.stopPropagation()}
+        onTouchEnd={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
+      >
 
         {/* Schedule */}
         <SectionHeader label="My Schedule" />
@@ -140,9 +169,9 @@ function BackCard({ med }: { med: MedData }) {
         {/* Tailored advice */}
         <SectionHeader label="Tailored Advice" />
         {[
-          { icon: '💊', label: 'Best time to take',     value: 'Morning with breakfast'           },
-          { icon: '🩺', label: 'Your prescriber says',  value: 'Monitor blood pressure weekly'    },
-          { icon: '⚠️',  label: 'Watch out for',         value: 'Avoid NSAIDs like Ibuprofen'      },
+          { icon: '💊', label: 'Best time to take',    value: 'Morning with breakfast'        },
+          { icon: '🩺', label: 'Your prescriber says', value: 'Monitor blood pressure weekly' },
+          { icon: '⚠️', label: 'Watch out for',        value: 'Avoid NSAIDs like Ibuprofen'   },
         ].map(row => (
           <div key={row.label}>
             <div className="flex items-center gap-4 px-5 py-4">
@@ -160,7 +189,6 @@ function BackCard({ med }: { med: MedData }) {
           </div>
         ))}
 
-        {/* Placeholder notice */}
         <div className="px-5 pt-1 pb-4">
           <p
             className="text-center text-[12px] font-medium px-4 py-3 rounded-[12px]"
@@ -175,14 +203,25 @@ function BackCard({ med }: { med: MedData }) {
         {/* Personal notes */}
         <SectionHeader label="Personal Notes" />
         <div className="px-5 pb-6">
-          <div
-            className="rounded-[12px] px-4 py-4"
-            style={{ backgroundColor: '#F5F8FF', border: '1px dashed #D6E4F7' }}
-          >
-            <p className="text-[14px]" style={{ color: '#C4CDD6', fontStyle: 'italic' }}>
-              No notes yet — tap to add a personal note...
+          <textarea
+            value={notes}
+            onChange={e => onNotesChange(e.target.value)}
+            placeholder="No notes yet — tap to add a personal note..."
+            rows={4}
+            className="w-full resize-none outline-none text-[14px] leading-relaxed rounded-[12px] px-4 py-4"
+            style={{
+              backgroundColor: '#F5F8FF',
+              border: '1px dashed #D6E4F7',
+              color: '#0C447C',
+              fontFamily: 'inherit',
+              caretColor: '#185FA5',
+            }}
+          />
+          {notes.length > 0 && (
+            <p className="text-[12px] mt-1.5 text-right font-medium" style={{ color: '#378ADD', opacity: 0.6 }}>
+              Saved automatically
             </p>
-          </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,196 +1,273 @@
-// ─── Types ───────────────────────────────────────────────────────────────────
+import { useState } from 'react';
 
-type DoseStatus = 'on_track' | 'missed' | 'upcoming' | 'watching';
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Member {
   id: string;
   name: string;
   relation: string;
   isYou?: boolean;
-  status: DoseStatus;
-  statusText: string;
-  time: string;
-  meds: string[];
   avatarColor: string;
 }
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
-const MOCK_MEMBERS: Member[] = [
-  {
-    id: '1',
-    name: 'Dorothy',
-    relation: 'You',
-    isYou: true,
-    status: 'on_track',
-    statusText: 'Took morning dose',
-    time: '8:05 AM',
-    meds: ['Lisinopril 10mg', 'Metformin 500mg'],
-    avatarColor: '#378ADD',
-  },
-  {
-    id: '2',
-    name: 'Sarah',
-    relation: 'Daughter',
-    status: 'watching',
-    statusText: 'Watching · Online now',
-    time: 'Last active 2m ago',
-    meds: ['Watching your medications'],
-    avatarColor: '#185FA5',
-  },
-  {
-    id: '3',
-    name: 'James',
-    relation: 'Son',
-    status: 'watching',
-    statusText: 'Watching · Online now',
-    time: 'Last active 5m ago',
-    meds: ['Watching your medications'],
-    avatarColor: '#0C447C',
-  },
+const INITIAL_MEMBERS: Member[] = [
+  { id: '1', name: 'Dorothy', relation: 'You',      isYou: true, avatarColor: '#378ADD' },
+  { id: '2', name: 'Sarah',   relation: 'Daughter',              avatarColor: '#185FA5' },
+  { id: '3', name: 'James',   relation: 'Son',                   avatarColor: '#0C447C' },
 ];
-
-const STATUS_CONFIG: Record<DoseStatus, { dot: string; label: string; labelColor: string }> = {
-  on_track: { dot: '#16A34A', label: '✓',  labelColor: '#16A34A' },
-  missed:   { dot: '#DC2626', label: '⚠',  labelColor: '#DC2626' },
-  upcoming: { dot: '#D97706', label: '○',  labelColor: '#D97706' },
-  watching: { dot: '#16A34A', label: '●', labelColor: '#16A34A' },
-};
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Family() {
-  const missedCount = MOCK_MEMBERS.filter(m => m.status === 'missed').length;
+  const [members, setMembers]       = useState<Member[]>(INITIAL_MEMBERS);
+  const [showSearch, setShowSearch] = useState(false);
+  const [query, setQuery]           = useState('');
+
+  function removeMember(id: string) {
+    setMembers(prev => prev.filter(m => m.id !== id));
+  }
+
+  function toggleSearch() {
+    setShowSearch(v => !v);
+    setQuery('');
+  }
+
+  const filtered = query.trim()
+    ? members.filter(m =>
+        m.name.toLowerCase().includes(query.toLowerCase()) ||
+        m.relation.toLowerCase().includes(query.toLowerCase())
+      )
+    : members;
 
   return (
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
+      <div className="w-full max-w-[520px] mx-auto">
 
-      {/* Header */}
-      <header className="mb-6">
-        <h1 className="text-[24px] font-bold" style={{ color: '#0C447C' }}>Family Loop</h1>
-        <p className="text-[14px] mt-1" style={{ color: '#378ADD' }}>
-          {MOCK_MEMBERS.length} members connected
-        </p>
-      </header>
+        {/* Centered title */}
+        <header className="mb-8 text-center">
+          <h1 className="text-[32px] font-bold tracking-tight" style={{ color: '#0C447C' }}>
+            Family Loop
+          </h1>
+        </header>
 
-      {/* Missed dose alert */}
-      {missedCount > 0 && (
-        <div className="rounded-[16px] p-4 mb-5 flex items-start gap-3"
-          style={{ backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5' }}>
-          <span className="text-[20px]">⚠</span>
-          <div>
-            <p className="text-[15px] font-bold" style={{ color: '#7F1D1D' }}>Missed dose detected</p>
-            <p className="text-[14px] mt-0.5" style={{ color: '#991B1B' }}>
-              {missedCount} family member{missedCount > 1 ? 's have' : ' has'} missed a dose today.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Today's status summary */}
-      <section className="mb-6">
-        <h2 className="text-[15px] font-semibold mb-3" style={{ color: '#0C447C' }}>Today's status</h2>
-        <div className="rounded-[20px] p-5 text-white" style={{ backgroundColor: '#185FA5' }}>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[16px] font-bold">Dorothy's medications</p>
-            <span className="text-[12px] font-semibold px-2.5 py-1 rounded-full"
-              style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
-              May 9
-            </span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {[
-              { med: 'Lisinopril 10mg',  time: '8:05 AM',  taken: true },
-              { med: 'Metformin 500mg',  time: '8:05 AM',  taken: true },
-              { med: 'Metformin 500mg',  time: '8:00 PM',  taken: false, label: 'Evening dose' },
-            ].map((d, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-[16px]">{d.taken ? '✓' : '○'}</span>
-                  <span className="text-[14px] opacity-90">{d.label ?? d.med}</span>
+        {/* Today's status card */}
+        <section className="mb-6">
+          <h2 className="text-[15px] font-semibold mb-3" style={{ color: '#0C447C' }}>Today's status</h2>
+          <div className="rounded-[20px] p-5 text-white" style={{ backgroundColor: '#185FA5' }}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[16px] font-bold">Dorothy's medications</p>
+              <span
+                className="text-[12px] font-semibold px-2.5 py-1 rounded-full"
+                style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+              >
+                May 9
+              </span>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {[
+                { med: 'Lisinopril 10mg', time: '8:05 AM', taken: true },
+                { med: 'Metformin 500mg', time: '8:05 AM', taken: true },
+                { med: 'Metformin 500mg', time: '8:00 PM', taken: false, label: 'Evening dose' },
+              ].map((d, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+                      style={{ backgroundColor: d.taken ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)' }}
+                    >
+                      {d.taken ? '✓' : '○'}
+                    </span>
+                    <span className="text-[14px]" style={{ opacity: d.taken ? 1 : 0.65 }}>
+                      {d.label ?? d.med}
+                    </span>
+                  </div>
+                  <span className="text-[13px]" style={{ opacity: 0.65 }}>{d.time}</span>
                 </div>
-                <span className="text-[13px] opacity-70">{d.time}</span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Member list */}
-      <section>
-        <h2 className="text-[15px] font-semibold mb-3" style={{ color: '#0C447C' }}>Members</h2>
-        <div className="flex flex-col gap-3">
-          {MOCK_MEMBERS.map(member => (
-            <MemberCard key={member.id} member={member} />
-          ))}
-        </div>
-      </section>
+        {/* Members section */}
+        <section>
 
-      {/* Invite button */}
-      <button
-        type="button"
-        className="mt-5 w-full font-semibold text-[16px] flex items-center justify-center gap-2"
-        style={{
-          minHeight: '52px',
-          borderRadius: '100px',
-          border: '1.5px solid #185FA5',
-          color: '#185FA5',
-          backgroundColor: 'white',
-        }}
-        onClick={() => console.log('[Pill Pal] Invite family member')}
-      >
-        <PlusIcon /> Invite a family member
-      </button>
+          {/* Row: "Members · N" on left, search icon on right */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[17px] font-bold" style={{ color: '#0C447C' }}>Members</h2>
+              <span
+                className="text-[13px] font-bold px-2.5 py-0.5 rounded-full"
+                style={{ backgroundColor: '#EFF6FF', color: '#185FA5' }}
+              >
+                {members.length}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleSearch}
+              className="w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-150"
+              style={{ backgroundColor: showSearch ? '#185FA5' : '#EFF6FF' }}
+              aria-label={showSearch ? 'Close search' : 'Search members'}
+            >
+              {showSearch ? <XSearchIcon /> : <SearchIcon />}
+            </button>
+          </div>
+
+          {/* Animated search bar */}
+          <div
+            style={{
+              overflow: 'hidden',
+              maxHeight: showSearch ? '64px' : '0px',
+              opacity: showSearch ? 1 : 0,
+              transition: 'max-height 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.18s ease',
+              marginBottom: showSearch ? '12px' : '0px',
+            }}
+          >
+            <div
+              className="flex items-center gap-3 px-4 rounded-[14px]"
+              style={{ backgroundColor: '#fff', border: '1.5px solid #D6E4F7', height: 48 }}
+            >
+              <SearchIcon faint />
+              <input
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search members…"
+                className="flex-1 text-[15px] outline-none bg-transparent"
+                style={{ color: '#0C447C', fontFamily: 'inherit' }}
+                tabIndex={showSearch ? 0 : -1}
+              />
+              {query.length > 0 && (
+                <button type="button" onClick={() => setQuery('')} className="shrink-0">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 2L12 12M12 2L2 12" stroke="#94A3B8" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Member cards */}
+          <div className="flex flex-col gap-3">
+            {filtered.length === 0 ? (
+              <div
+                className="rounded-[20px] px-5 py-10 text-center"
+                style={{ backgroundColor: '#fff', border: '0.5px solid #D6E4F7' }}
+              >
+                <p className="text-[15px] font-medium" style={{ color: '#94A3B8' }}>
+                  No members match "{query}"
+                </p>
+              </div>
+            ) : (
+              filtered.map(member => (
+                <MemberCard
+                  key={member.id}
+                  member={member}
+                  onRemove={() => removeMember(member.id)}
+                />
+              ))
+            )}
+          </div>
+        </section>
+
+        {/* Invite button */}
+        <button
+          type="button"
+          className="mt-6 w-full font-semibold text-[16px] flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
+          style={{
+            minHeight: 52,
+            borderRadius: 100,
+            border: '1.5px solid #185FA5',
+            color: '#185FA5',
+            backgroundColor: '#fff',
+          }}
+          onClick={() => console.log('[Pill Pal] Invite family member')}
+        >
+          <PlusIcon />
+          Invite
+        </button>
+
+      </div>
     </div>
   );
 }
 
-// ─── Member card ─────────────────────────────────────────────────────────────
+// ─── Member card ──────────────────────────────────────────────────────────────
 
-function MemberCard({ member }: { member: Member }) {
-  const cfg = STATUS_CONFIG[member.status];
+function MemberCard({ member, onRemove }: { member: Member; onRemove: () => void }) {
   return (
-    <div className="bg-white rounded-[20px] p-4 flex items-center gap-4"
-      style={{ border: '0.5px solid #D6E4F7' }}>
-
-      {/* Avatar */}
-      <div className="relative shrink-0">
-        <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[18px] text-white"
-          style={{ backgroundColor: member.avatarColor }}>
-          {member.name[0]}
-        </div>
-        {/* Online dot */}
-        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white"
-          style={{ backgroundColor: cfg.dot }} />
+    <div
+      className="bg-white flex items-center gap-4 px-4 py-3.5"
+      style={{
+        borderRadius: 20,
+        border: '0.5px solid #D6E4F7',
+        boxShadow: '0 1px 8px rgba(12,68,124,0.06)',
+      }}
+    >
+      <div
+        className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-[18px] text-white shrink-0"
+        style={{ backgroundColor: member.avatarColor }}
+      >
+        {member.name[0]}
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-[16px] font-bold truncate" style={{ color: '#0C447C' }}>
-            {member.name}
-          </p>
-          {member.isYou && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-              style={{ backgroundColor: '#EFF6FF', color: '#185FA5' }}>You</span>
-          )}
-        </div>
-        <p className="text-[13px]" style={{ color: cfg.labelColor }}>
-          {member.statusText}
+        <p className="text-[16px] font-bold leading-tight truncate" style={{ color: '#0C447C' }}>
+          {member.name}
         </p>
-        <p className="text-[12px] mt-0.5" style={{ color: '#9CA3AF' }}>{member.time}</p>
+        <p className="text-[13px] mt-0.5" style={{ color: '#378ADD' }}>
+          {member.relation}
+        </p>
       </div>
+
+      {member.isYou ? (
+        <span
+          className="text-[12px] font-semibold px-2.5 py-1 rounded-full shrink-0"
+          style={{ backgroundColor: '#EFF6FF', color: '#185FA5' }}
+        >
+          You
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 text-[13px] font-semibold px-3 py-1.5 rounded-full transition-all duration-150 active:scale-95"
+          style={{ border: '1px solid #FECACA', color: '#DC2626', backgroundColor: '#FEF2F2' }}
+        >
+          Remove
+        </button>
+      )}
     </div>
   );
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
+function SearchIcon({ faint }: { faint?: boolean }) {
+  const c = faint ? '#CBD5E1' : '#185FA5';
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none">
+      <circle cx="7.5" cy="7.5" r="5.5" stroke={c} strokeWidth="1.6" />
+      <path d="M12 12L15 15" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function XSearchIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M2 2L11 11M11 2L2 11" stroke="white" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <line x1="9" y1="3" x2="9" y2="15" stroke="#185FA5" strokeWidth="1.8" strokeLinecap="round" />
-      <line x1="3" y1="9" x2="15" y2="9" stroke="#185FA5" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M9 3V15M3 9H15" stroke="#185FA5" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }

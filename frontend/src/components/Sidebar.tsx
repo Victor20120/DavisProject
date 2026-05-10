@@ -1,10 +1,10 @@
 import { Link, useLocation } from 'react-router-dom';
 
 const NAV_ITEMS = [
-  { label: 'Home',        to: '/',            icon: HomeIcon },
-  { label: 'Medications', to: '/medications', icon: PillIcon },
-  { label: 'Family',      to: '/family',      icon: FamilyIcon },
-  { label: 'Settings',    to: '/settings',    icon: SettingsIcon },
+  { label: 'Home',         to: '/',            icon: HomeIcon },
+  { label: 'Medications',  to: '/medications', icon: PillIcon },
+  { label: 'Family Loops', to: '/family',      icon: FamilyIcon },
+  { label: 'Reminders',    to: '/settings',    icon: ReminderIcon },
 ];
 
 export default function Sidebar() {
@@ -70,13 +70,14 @@ function HomeIcon({ active }: { active: boolean }) {
 }
 
 function PillIcon({ active }: { active: boolean }) {
+  const c = active ? '#185FA5' : '#0C447C';
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="2" y="8" width="16" height="6" rx="3"
-        transform="rotate(-45 2 8)"
-        stroke={active ? '#185FA5' : '#0C447C'} strokeWidth="1.5" />
-      <line x1="6.5" y1="13.5" x2="13.5" y2="6.5"
-        stroke={active ? '#185FA5' : '#0C447C'} strokeWidth="1.5" />
+      <rect x="2" y="7" width="16" height="6" rx="3"
+        transform="rotate(-45 10 10)"
+        stroke={c} strokeWidth="1.5" fill="none" />
+      <line x1="7" y1="7" x2="13" y2="13"
+        stroke={c} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -93,12 +94,13 @@ function FamilyIcon({ active }: { active: boolean }) {
   );
 }
 
-function SettingsIcon({ active }: { active: boolean }) {
+function ReminderIcon({ active }: { active: boolean }) {
   const c = active ? '#185FA5' : '#0C447C';
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="2.5" stroke={c} strokeWidth="1.5" />
-      <path d="M10 2V4M10 16V18M4 4L5.5 5.5M14.5 14.5L16 16M2 10H4M16 10H18M4 16L5.5 14.5M14.5 5.5L16 4"
+      <path d="M10 2C6.686 2 4 4.686 4 8V13L2 15H18L16 13V8C16 4.686 13.314 2 10 2Z"
+        stroke={c} strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+      <path d="M8 15C8 16.1 8.9 17 10 17C11.1 17 12 16.1 12 15"
         stroke={c} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );

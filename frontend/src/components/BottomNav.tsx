@@ -21,18 +21,17 @@ const NAV_ITEMS = [
     to: '/medications',
     icon: (active: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect
-          x="2" y="10.5" width="20" height="7" rx="3.5"
-          transform="rotate(-45 6 17)"
+        <rect x="3" y="9" width="18" height="6" rx="3"
+          transform="rotate(-45 12 12)"
           stroke={active ? '#378ADD' : 'white'}
-          strokeWidth="1.5"
-        />
-        <line x1="8.5" y1="15.5" x2="15.5" y2="8.5" stroke={active ? '#378ADD' : 'white'} strokeWidth="1.5" />
+          strokeWidth="1.5" fill="none" />
+        <line x1="9" y1="9" x2="15" y2="15"
+          stroke={active ? '#378ADD' : 'white'} strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     ),
   },
   {
-    label: 'Family',
+    label: 'Family Loops',
     to: '/family',
     icon: (active: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -44,17 +43,14 @@ const NAV_ITEMS = [
     ),
   },
   {
-    label: 'Settings',
+    label: 'Reminders',
     to: '/settings',
     icon: (active: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="3" stroke={active ? '#378ADD' : 'white'} strokeWidth="1.5" />
-        <path
-          d="M12 2V4M12 20V22M4.22 4.22L5.64 5.64M18.36 18.36L19.78 19.78M2 12H4M20 12H22M4.22 19.78L5.64 18.36M18.36 5.64L19.78 4.22"
-          stroke={active ? '#378ADD' : 'white'}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
+        <path d="M12 3C8.134 3 5 6.134 5 10V16L3 18H21L19 16V10C19 6.134 15.866 3 12 3Z"
+          stroke={active ? '#378ADD' : 'white'} strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+        <path d="M10 18C10 19.1 10.9 20 12 20C13.1 20 14 19.1 14 18"
+          stroke={active ? '#378ADD' : 'white'} strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     ),
   },

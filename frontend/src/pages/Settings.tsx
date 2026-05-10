@@ -1,234 +1,371 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-interface ReminderSetting {
-  id: string;
-  medName: string;
-  dosage: string;
-  frequency: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface ReminderEntry {
   enabled: boolean;
   times: string[];
+  frequency: string;
 }
 
-const INITIAL_REMINDERS: ReminderSetting[] = [
-  {
-    id: '1',
-    medName: 'Lisinopril',
-    dosage: '10mg',
-    frequency: 'Once daily',
-    enabled: true,
-    times: ['08:00'],
-  },
-  {
-    id: '2',
-    medName: 'Metformin',
-    dosage: '500mg',
-    frequency: 'Twice daily',
-    enabled: true,
-    times: ['08:00', '20:00'],
-  },
+type ReminderMap = Record<string, ReminderEntry>;
+
+// ─── Meds (mirrors Medications page mock data) ────────────────────────────────
+
+const MEDS = [
+  { common_name: 'Blood Pressure Pill', generic_name: 'Lisinopril', dosage: '10mg',  defaultFrequency: 'Once daily',  defaultTimes: ['08:00'] },
+  { common_name: 'Pain Reliever',       generic_name: 'Ibuprofen',  dosage: '400mg', defaultFrequency: 'As needed',   defaultTimes: ['09:00'] },
+  { common_name: 'Diabetes Pill',       generic_name: 'Metformin',  dosage: '500mg', defaultFrequency: 'Twice daily', defaultTimes: ['08:00', '20:00'] },
 ];
 
+const CARD_COLORS = ['#0C447C', '#185FA5', '#2563EB'];
+
+const DEFAULTS: ReminderMap = {
+  Lisinopril: { enabled: true,  times: ['08:00'],          frequency: 'Once daily'  },
+  Ibuprofen:  { enabled: false, times: ['09:00'],          frequency: 'As needed'   },
+  Metformin:  { enabled: true,  times: ['08:00', '20:00'], frequency: 'Twice daily' },
+};
+
+const DOSE_LABELS = ['Morning', 'Midday', 'Evening', 'Night'];
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+
+function load(): ReminderMap {
+  try {
+    const s = localStorage.getItem('pillpal_all_reminders');
+    if (s) return JSON.parse(s) as ReminderMap;
+  } catch {}
+  return DEFAULTS;
+}
+
+function persist(data: ReminderMap) {
+  localStorage.setItem('pillpal_all_reminders', JSON.stringify(data));
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function nowHHMM() {
+  const d = new Date();
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function fmt12(hhmm: string) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const ampm = h < 12 ? 'AM' : 'PM';
+  return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export default function Settings() {
-  const [reminders, setReminders] = useState(INITIAL_REMINDERS);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [emailEnabled, setEmailEnabled] = useState(true);
-  const [email, setEmail] = useState('your@email.com');
+  const [reminders, setReminders]       = useState<ReminderMap>(DEFAULTS);
+  const [openIndex, setOpenIndex]       = useState<number | null>(null);
+  const [editIndex, setEditIndex]       = useState<number | null>(null);
+  const [pressedIndex, setPressedIndex] = useState<number | null>(null);
 
-  function toggleReminder(id: string) {
-    setReminders(prev =>
-      prev.map(r => (r.id === id ? { ...r, enabled: !r.enabled } : r))
-    );
+  useEffect(() => { setReminders(load()); }, []);
+
+  function update(genericName: string, patch: Partial<ReminderEntry>) {
+    setReminders(prev => {
+      const next = { ...prev, [genericName]: { ...prev[genericName], ...patch } };
+      persist(next);
+      return next;
+    });
   }
 
-  function updateTime(id: string, index: number, value: string) {
-    setReminders(prev =>
-      prev.map(r => {
-        if (r.id !== id) return r;
-        const times = [...r.times];
-        times[index] = value;
-        return { ...r, times };
-      })
-    );
+  function setTime(genericName: string, index: number, value: string) {
+    const times = [...(reminders[genericName]?.times ?? [])];
+    times[index] = value;
+    update(genericName, { times });
   }
+
+  function addTime(genericName: string) {
+    const times = [...(reminders[genericName]?.times ?? []), nowHHMM()];
+    update(genericName, { times });
+  }
+
+  function removeTime(genericName: string, index: number) {
+    const times = (reminders[genericName]?.times ?? []).filter((_, i) => i !== index);
+    if (times.length === 0) return;
+    update(genericName, { times });
+  }
+
+  function closeCard() {
+    setOpenIndex(null);
+    setEditIndex(null);
+  }
+
+  const enabledCount = MEDS.filter(m => reminders[m.generic_name]?.enabled).length;
 
   return (
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
+      <div className="w-full max-w-[520px] mx-auto">
 
-      <header className="mb-7">
-        <h1 className="text-[24px] font-bold" style={{ color: '#0C447C' }}>Settings</h1>
-      </header>
-
-      {/* ── Reminders ── */}
-      <Section title="Reminders">
-        {reminders.map(r => (
-          <div key={r.id} className="bg-white rounded-[20px] p-5"
-            style={{ border: '0.5px solid #D6E4F7' }}>
-
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <p className="text-[16px] font-bold" style={{ color: '#0C447C' }}>
-                  {r.medName} {r.dosage}
-                </p>
-                <p className="text-[13px]" style={{ color: '#378ADD' }}>{r.frequency}</p>
-              </div>
-              <Toggle on={r.enabled} onChange={() => toggleReminder(r.id)} />
-            </div>
-
-            {r.enabled && (
-              <div className="mt-4 flex flex-col gap-3 pt-4"
-                style={{ borderTop: '0.5px solid #D6E4F7' }}>
-                {r.times.map((t, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <p className="text-[14px] font-medium" style={{ color: '#0C447C' }}>
-                      {r.times.length > 1 ? (i === 0 ? 'Morning dose' : 'Evening dose') : 'Reminder time'}
-                    </p>
-                    <input
-                      type="time"
-                      value={t}
-                      onChange={e => updateTime(r.id, i, e.target.value)}
-                      className="rounded-[10px] px-3 py-2 text-[15px] font-semibold"
-                      style={{
-                        border: '1px solid #D6E4F7',
-                        color: '#185FA5',
-                        backgroundColor: '#F5F8FF',
-                        outline: 'none',
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </Section>
-
-      {/* ── Notifications ── */}
-      <Section title="Notifications">
-        <div className="bg-white rounded-[20px]" style={{ border: '0.5px solid #D6E4F7' }}>
-
-          {/* Browser push */}
-          <div className="flex items-center justify-between p-5">
+        {/* Header */}
+        <header className="mb-6">
+          <div className="flex items-end justify-between">
             <div>
-              <p className="text-[15px] font-semibold" style={{ color: '#0C447C' }}>
-                Browser notifications
-              </p>
-              <p className="text-[13px] mt-0.5" style={{ color: '#378ADD' }}>
-                {pushEnabled ? 'You\'ll get alerts on this device' : 'Tap to enable alerts on this device'}
+              <h1 className="text-[24px] font-bold" style={{ color: '#0C447C' }}>Reminders</h1>
+              <p className="text-[14px] mt-0.5" style={{ color: '#378ADD' }}>
+                {enabledCount} of {MEDS.length} reminders active
               </p>
             </div>
-            <Toggle on={pushEnabled} onChange={() => {
-              setPushEnabled(v => !v);
-              console.log('[Pill Pal] Push notifications toggled');
-            }} />
+            <span className="text-[28px] font-bold mb-0.5" style={{ color: '#D6E4F7' }}>
+              {enabledCount}
+            </span>
           </div>
+        </header>
 
-          <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 20px' }} />
+        {/* Cards */}
+        <div className="flex flex-col gap-3">
+          {MEDS.map((med, i) => {
+            const r         = reminders[med.generic_name] ?? DEFAULTS[med.generic_name];
+            const isOpen    = openIndex === i;
+            const isEditing = editIndex === i;
+            const isPressed = pressedIndex === i;
+            const color     = CARD_COLORS[i % CARD_COLORS.length];
 
-          {/* Email */}
-          <div className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-[15px] font-semibold" style={{ color: '#0C447C' }}>
-                  Email reminders
-                </p>
-                <p className="text-[13px] mt-0.5" style={{ color: '#378ADD' }}>
-                  Daily digest sent each morning
-                </p>
-              </div>
-              <Toggle on={emailEnabled} onChange={() => setEmailEnabled(v => !v)} />
-            </div>
-            {emailEnabled && (
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="w-full rounded-[12px] px-4 py-3 text-[15px]"
+            return (
+              <div
+                key={med.generic_name}
+                className="overflow-hidden"
                 style={{
-                  border: '1px solid #D6E4F7',
-                  color: '#0C447C',
-                  backgroundColor: '#F5F8FF',
-                  outline: 'none',
+                  borderRadius: 22,
+                  boxShadow: isOpen
+                    ? '0 8px 32px rgba(12,68,124,0.20)'
+                    : `0 2px 14px rgba(12,68,124,${0.12 - i * 0.02})`,
+                  transform: isPressed && !isOpen ? 'scale(0.975)' : 'scale(1)',
+                  transition: 'transform 0.08s ease, box-shadow 0.3s ease',
                 }}
-              />
-            )}
-          </div>
-        </div>
-      </Section>
+                onPointerDown={() => { if (!isOpen) setPressedIndex(i); }}
+                onPointerUp={() => setPressedIndex(null)}
+                onPointerLeave={() => setPressedIndex(null)}
+                onPointerCancel={() => setPressedIndex(null)}
+              >
+                {/* Colored header */}
+                <div
+                  className="flex items-center gap-3 px-4 select-none"
+                  style={{
+                    backgroundColor: color,
+                    height: 72,
+                    cursor: isEditing ? 'default' : 'pointer',
+                  }}
+                  onClick={() => {
+                    if (isEditing) return;
+                    setOpenIndex(prev => prev === i ? null : i);
+                    setEditIndex(null);
+                    setPressedIndex(null);
+                  }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}
+                  >
+                    <BellIconWhite />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-bold text-[16px] leading-tight truncate">{med.common_name}</p>
+                    <p className="text-[13px] truncate" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                      {med.generic_name} · {r.frequency}
+                    </p>
+                  </div>
+                  {isOpen ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!isEditing && (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setEditIndex(i); }}
+                          className="w-7 h-7 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                        >
+                          <PencilIcon />
+                        </button>
+                      )}
+                      {isEditing ? (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setEditIndex(null); }}
+                          className="px-3 h-7 rounded-full text-[12px] font-bold flex items-center"
+                          style={{ backgroundColor: 'rgba(255,255,255,0.9)', color: color }}
+                        >
+                          Done
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); closeCard(); }}
+                          className="w-7 h-7 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 2L10 10M10 2L2 10" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="shrink-0">
+                      <path d="M7 5L11 9L7 13" stroke="rgba(255,255,255,0.45)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
 
-      {/* ── Family loop ── */}
-      <Section title="Family loop">
-        <div className="bg-white rounded-[20px] p-5" style={{ border: '0.5px solid #D6E4F7' }}>
-          <p className="text-[14px] mb-4" style={{ color: '#378ADD' }}>
-            Family members will be notified if you miss a dose.
+                {/* Collapsed body */}
+                {!isOpen && (
+                  <div
+                    className="flex items-center justify-between px-4 bg-white cursor-pointer"
+                    style={{ height: 60, borderTop: '0.5px solid rgba(214,228,247,0.6)' }}
+                    onClick={() => setOpenIndex(i)}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <BellMiniIcon color={r.enabled ? color : '#CBD5E1'} />
+                      <span className="text-[14px] font-semibold" style={{ color: r.enabled ? '#0C447C' : '#94A3B8' }}>
+                        {r.enabled ? r.times.map(t => fmt12(t)).join('  ·  ') : 'No reminder set'}
+                      </span>
+                    </div>
+                    <Toggle on={r.enabled} onChange={() => update(med.generic_name, { enabled: !r.enabled })} />
+                  </div>
+                )}
+
+                {/* Expanded body */}
+                {isOpen && (
+                  <div className="bg-white" style={{ borderTop: '0.5px solid rgba(214,228,247,0.6)' }}>
+
+                    {/* Frequency input — edit mode only */}
+                    {isEditing && (
+                      <div className="px-4 py-3.5" style={{ borderBottom: '0.5px solid #D6E4F7' }}>
+                        <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: '#378ADD' }}>
+                          Frequency / instructions
+                        </p>
+                        <input
+                          type="text"
+                          value={r.frequency}
+                          onChange={e => update(med.generic_name, { frequency: e.target.value })}
+                          onClick={e => e.stopPropagation()}
+                          onPointerDown={e => e.stopPropagation()}
+                          placeholder="e.g. Once daily, Twice daily, As needed…"
+                          className="w-full rounded-[12px] px-3 py-2.5 text-[15px] font-semibold"
+                          style={{
+                            border: `1.5px solid ${color}30`,
+                            color: '#0C447C',
+                            backgroundColor: '#F5F8FF',
+                            outline: 'none',
+                            fontFamily: 'inherit',
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Time rows */}
+                    {r.times.map((t, ti) => (
+                      <div key={ti}>
+                        {ti > 0 && <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />}
+                        <div className="flex items-center justify-between px-4 py-4 gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: '#378ADD' }}>
+                              {r.times.length > 1 ? (DOSE_LABELS[ti] ?? `Dose ${ti + 1}`) : 'Reminder time'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setTime(med.generic_name, ti, nowHHMM())}
+                              className="text-[12px] font-semibold flex items-center gap-1"
+                              style={{ color: color }}
+                            >
+                              <ClockMiniIcon />
+                              Use current time
+                            </button>
+                          </div>
+                          <input
+                            type="time"
+                            value={t}
+                            onChange={e => setTime(med.generic_name, ti, e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                            onPointerDown={e => e.stopPropagation()}
+                            className="rounded-[12px] px-3 py-2 text-[17px] font-bold shrink-0"
+                            style={{
+                              border: `1.5px solid ${color}20`,
+                              color: color,
+                              backgroundColor: '#F5F8FF',
+                              outline: 'none',
+                            }}
+                          />
+                          {isEditing && r.times.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeTime(med.generic_name, ti)}
+                              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                              style={{ backgroundColor: '#FEF2F2' }}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M2 6H10" stroke="#DC2626" strokeWidth="1.6" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Add dose time — edit mode only */}
+                    {isEditing && (
+                      <div className="px-4 pb-3" style={{ borderTop: '0.5px solid #D6E4F7' }}>
+                        <button
+                          type="button"
+                          onClick={() => addTime(med.generic_name)}
+                          className="w-full flex items-center justify-center gap-2 font-semibold text-[14px] mt-3"
+                          style={{
+                            minHeight: 42,
+                            borderRadius: 100,
+                            border: `1.5px solid ${color}40`,
+                            color: color,
+                            backgroundColor: `${color}08`,
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M7 2V12M2 7H12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                          </svg>
+                          Add dose time
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Enable toggle */}
+                    <div
+                      className="flex items-center justify-between px-4 py-3.5"
+                      style={{ borderTop: '0.5px solid #D6E4F7' }}
+                    >
+                      <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>
+                        {r.enabled ? 'Reminder enabled' : 'Reminder disabled'}
+                      </p>
+                      <Toggle on={r.enabled} onChange={() => update(med.generic_name, { enabled: !r.enabled })} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Info tip */}
+        <div
+          className="mt-5 rounded-[16px] px-4 py-3.5 flex items-start gap-3"
+          style={{ backgroundColor: '#EFF6FF', border: '0.5px solid #D6E4F7' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 mt-0.5">
+            <circle cx="8" cy="8" r="7" stroke="#378ADD" strokeWidth="1.4" />
+            <path d="M8 7V11" stroke="#378ADD" strokeWidth="1.4" strokeLinecap="round" />
+            <circle cx="8" cy="5" r="0.7" fill="#378ADD" />
+          </svg>
+          <p className="text-[13px] leading-relaxed" style={{ color: '#378ADD' }}>
+            Tap a card to set reminder times. Tap the pencil to edit the frequency or add dose times.
           </p>
-          <div className="flex flex-col gap-3 mb-4">
-            {[
-              { name: 'Sarah', relation: 'Daughter', color: '#185FA5' },
-              { name: 'James', relation: 'Son',      color: '#0C447C' },
-            ].map(m => (
-              <div key={m.name} className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[14px] text-white shrink-0"
-                  style={{ backgroundColor: m.color }}>
-                  {m.name[0]}
-                </div>
-                <div className="flex-1">
-                  <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>{m.name}</p>
-                  <p className="text-[12px]" style={{ color: '#378ADD' }}>{m.relation}</p>
-                </div>
-                <button type="button" className="text-[13px] font-medium" style={{ color: '#DC2626' }}
-                  onClick={() => console.log('[Pill Pal] Remove', m.name)}>
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-          <button type="button"
-            className="w-full font-semibold text-[15px]"
-            style={{ minHeight: '44px', borderRadius: '100px', border: '1.5px solid #185FA5', color: '#185FA5', backgroundColor: 'white' }}
-            onClick={() => console.log('[Pill Pal] Invite')}>
-            + Invite someone
-          </button>
         </div>
-      </Section>
-
-      {/* ── About ── */}
-      <Section title="About">
-        <div className="bg-white rounded-[20px] overflow-hidden" style={{ border: '0.5px solid #D6E4F7' }}>
-          {[
-            { label: 'App',     value: 'Pill Pal' },
-            { label: 'Version', value: '1.0.0' },
-            { label: 'Built for', value: 'HackDavis 2026' },
-          ].map((row, i, arr) => (
-            <div key={row.label}>
-              <div className="flex items-center justify-between px-5 py-4">
-                <span className="text-[14px]" style={{ color: '#9CA3AF' }}>{row.label}</span>
-                <span className="text-[14px] font-medium" style={{ color: '#0C447C' }}>{row.value}</span>
-              </div>
-              {i < arr.length - 1 && (
-                <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 20px' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      </Section>
+      </div>
     </div>
   );
 }
 
 // ─── Shared components ────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mb-6">
-      <h2 className="text-[13px] font-bold uppercase tracking-widest mb-3 px-1"
-        style={{ color: '#378ADD' }}>
-        {title}
-      </h2>
-      <div className="flex flex-col gap-3">{children}</div>
-    </section>
-  );
-}
 
 function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   return (
@@ -236,7 +373,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
       type="button"
       role="switch"
       aria-checked={on}
-      onClick={onChange}
+      onClick={e => { e.stopPropagation(); onChange(); }}
       className="relative inline-flex h-7 w-12 rounded-full transition-colors duration-200 shrink-0"
       style={{ backgroundColor: on ? '#185FA5' : '#D6E4F7' }}
     >
@@ -245,5 +382,45 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
         style={{ left: on ? '22px' : '4px' }}
       />
     </button>
+  );
+}
+
+function BellIconWhite() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <path d="M11 2C7.686 2 5 4.686 5 8V14L3 16H19L17 14V8C17 4.686 14.314 2 11 2Z"
+        stroke="white" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+      <path d="M9 16C9 17.1 9.9 18 11 18C12.1 18 13 17.1 13 16"
+        stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function BellMiniIcon({ color }: { color: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M8 1.5C5.515 1.5 3.5 3.515 3.5 6V10L2 11.5H14L12.5 10V6C12.5 3.515 10.485 1.5 8 1.5Z"
+        stroke={color} strokeWidth="1.4" strokeLinejoin="round" fill="none" />
+      <path d="M6.5 11.5C6.5 12.328 7.172 13 8 13C8.828 13 9.5 12.328 9.5 11.5"
+        stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M9.5 1.5L11.5 3.5L4 11H2V9L9.5 1.5Z"
+        stroke="white" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+function ClockMiniIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M6 3.5V6L7.5 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
   );
 }
