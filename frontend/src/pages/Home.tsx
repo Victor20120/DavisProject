@@ -32,21 +32,32 @@ export default function Home() {
     return () => { unsubMeds(); unsubFamily(); };
   }, [user]);
 
-  // Find the next upcoming reminder from user's meds
+  // Find the next upcoming reminder — prefers the Reminders tab cache, falls back to Firestore reminderTime
   const nextReminder = (() => {
     const now = new Date();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    const candidates = recentMeds
-      .filter(m => m.reminderTime)
-      .map(m => {
-        const [h, min] = m.reminderTime.split(':').map(Number);
-        return { med: m, minutes: h * 60 + min };
-      })
-      .sort((a, b) => {
-        const aNext = a.minutes >= nowMinutes ? a.minutes : a.minutes + 1440;
-        const bNext = b.minutes >= nowMinutes ? b.minutes : b.minutes + 1440;
-        return aNext - bNext;
+
+    let cacheMap: Record<string, { enabled: boolean; times: string[] }> = {};
+    try {
+      const raw = sessionStorage.getItem('pal_reminders_cache');
+      if (raw) cacheMap = JSON.parse(raw);
+    } catch {}
+
+    const candidates = recentMeds.flatMap(m => {
+      const cached = cacheMap[m.generic_name];
+      const times = cached?.enabled ? cached.times
+        : m.reminderTime ? [m.reminderTime]
+        : [];
+      return times.map(t => {
+        const [h, min] = t.split(':').map(Number);
+        return { med: m, time: t, minutes: h * 60 + min };
       });
+    }).sort((a, b) => {
+      const aNext = a.minutes >= nowMinutes ? a.minutes : a.minutes + 1440;
+      const bNext = b.minutes >= nowMinutes ? b.minutes : b.minutes + 1440;
+      return aNext - bNext;
+    });
+
     return candidates[0] ?? null;
   })();
 
@@ -141,7 +152,7 @@ export default function Home() {
             {nextReminder ? (
               <>
                 <p className="text-[14px] opacity-70">{nextReminder.med.generic_name} {nextReminder.med.dosage}</p>
-                <p className="text-[32px] font-bold mt-1 leading-none">{fmt12(nextReminder.med.reminderTime)}</p>
+                <p className="text-[32px] font-bold mt-1 leading-none">{fmt12(nextReminder.time)}</p>
               </>
             ) : (
               <p className="text-[18px] font-semibold mt-1 opacity-80">No reminders set</p>

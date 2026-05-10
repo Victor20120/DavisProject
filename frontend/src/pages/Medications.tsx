@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MedData } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { onMedsChanged, updateMedNotes, seedDemoData, saveMed, markMedTaken } from '../database/firestore';
-import { scanPillBottle } from '../services/api';
+import { onMedsChanged, updateMedNotes, updateMedSchedule, seedDemoData, saveMed, markMedTaken } from '../database/firestore';
 
 const CARD_COLORS = ['#0C447C', '#185FA5', '#2563EB'];
 
@@ -27,13 +26,8 @@ export default function Medications() {
   const [isFlipped, setIsFlipped]         = useState(false);
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [viewMode, setViewMode]           = useState<'stack' | 'list'>('stack');
-  const [showAddMenu, setShowAddMenu]       = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
-  const [isScanning, setIsScanning]         = useState(false);
-  const navigate       = useNavigate();
-  const addMenuRef     = useRef<HTMLDivElement>(null);
-  const photoInputRef  = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   const notesMap = Object.fromEntries(meds.map(m => [m.generic_name, m.notes ?? '']));
 
@@ -53,17 +47,6 @@ export default function Medications() {
     });
     return unsub;
   }, [user]);
-
-  useEffect(() => {
-    if (!showAddMenu) return;
-    function onOutsideClick(e: MouseEvent) {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
-        setShowAddMenu(false);
-      }
-    }
-    document.addEventListener('mousedown', onOutsideClick);
-    return () => document.removeEventListener('mousedown', onOutsideClick);
-  }, [showAddMenu]);
 
   async function handleNotesChange(genericName: string, text: string) {
     // Optimistic local update so typing feels instant
@@ -148,23 +131,6 @@ export default function Medications() {
     }).catch(() => {});
   }
 
-  async function handleScan(file: File) {
-    setIsScanning(true);
-    setShowAddMenu(false);
-    try {
-      const base64 = await fileToBase64(file);
-      const data   = await scanPillBottle(base64, file.type || 'image/jpeg');
-      sessionStorage.setItem('lastScan', JSON.stringify(data));
-      navigate('/pill-card');
-    } catch (err) {
-      console.error('[Pill Pal] Scan failed', err);
-      alert('Could not read that label. Try a clearer photo or better lighting.');
-    } finally {
-      setIsScanning(false);
-    }
-  }
-
-
   return (
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
       <div className="w-full max-w-[520px] mx-auto">
@@ -179,75 +145,19 @@ export default function Medications() {
               </p>
             </div>
 
-            {/* Hidden file inputs for scan */}
-            <input ref={photoInputRef}  type="file" accept="image/*" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleScan(f); e.target.value = ''; }} />
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleScan(f); e.target.value = ''; }} />
-
-            {/* Add button + dropdown */}
-            <div className="relative shrink-0 pt-1" ref={addMenuRef}>
+            {/* Add button */}
+            <div className="relative shrink-0 pt-1">
               <button
                 type="button"
-                onClick={() => setShowAddMenu(v => !v)}
-                disabled={isScanning}
+                onClick={() => setShowManualForm(true)}
                 className="flex items-center gap-1.5 px-3.5 rounded-full font-semibold text-[14px] text-white transition-transform active:scale-95"
-                style={{ backgroundColor: '#185FA5', height: 36, opacity: isScanning ? 0.7 : 1 }}
+                style={{ backgroundColor: '#185FA5', height: 36 }}
               >
-                {isScanning ? (
-                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.6" />
-                    <path d="M7 1.5C4 1.5 1.5 4 1.5 7" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                )}
-                {isScanning ? 'Scanning…' : 'Add'}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                Add
               </button>
-
-              {/* Dropdown */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 10px)',
-                  right: 0,
-                  width: 230,
-                  backgroundColor: '#fff',
-                  borderRadius: 18,
-                  border: '0.5px solid #D6E4F7',
-                  boxShadow: '0 8px 36px rgba(12,68,124,0.18)',
-                  overflow: 'hidden',
-                  zIndex: 50,
-                  opacity: showAddMenu ? 1 : 0,
-                  transform: showAddMenu ? 'translateY(0) scale(1)' : 'translateY(-6px) scale(0.96)',
-                  transformOrigin: 'top right',
-                  pointerEvents: showAddMenu ? 'all' : 'none',
-                  transition: 'opacity 0.16s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                }}
-              >
-                <AddMenuOption
-                  icon={<CameraMenuIcon />}
-                  label="Camera"
-                  sub="Point at pill bottle"
-                  onClick={() => { setShowAddMenu(false); cameraInputRef.current?.click(); }}
-                />
-                <div style={{ height: '0.5px', backgroundColor: '#F0F7FF', margin: '0 16px' }} />
-                <AddMenuOption
-                  icon={<PhotoMenuIcon />}
-                  label="Upload photo"
-                  sub="From your photo library"
-                  onClick={() => { setShowAddMenu(false); photoInputRef.current?.click(); }}
-                />
-                <div style={{ height: '0.5px', backgroundColor: '#F0F7FF', margin: '0 16px' }} />
-                <AddMenuOption
-                  icon={<PencilMenuIcon />}
-                  label="Add manually"
-                  sub="Type in med details"
-                  onClick={() => { setShowAddMenu(false); setShowManualForm(true); }}
-                />
-              </div>
             </div>
           </div>
         </header>
@@ -363,6 +273,7 @@ export default function Medications() {
                               notes={notesMap[med.generic_name] ?? ''}
                               onNotesChange={text => handleNotesChange(med.generic_name, text)}
                               onClose={handleClose}
+                              userId={user?.uid ?? ''}
                             />
                           </div>
                         </div>
@@ -672,21 +583,63 @@ function ExpandedFront({
 
 // ─── Expanded back face ───────────────────────────────────────────────────────
 
+function timeUntil(hhmm: string, now: Date): string {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const targetMins = h * 60 + m;
+  let diff = targetMins - nowMins;
+  if (diff <= 0) diff += 1440;
+  const hrs = Math.floor(diff / 60);
+  const mins = diff % 60;
+  if (hrs === 0) return `in ${mins}m`;
+  if (mins === 0) return `in ${hrs}h`;
+  return `in ${hrs}h ${mins}m`;
+}
+
+function fmt12back(hhmm: string): string {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 function ExpandedBack({
-  med, color, notes, onNotesChange, onClose,
+  med, color, notes, onNotesChange, onClose, userId,
 }: {
-  med: MedData;
+  med: FirestoreMed;
   color: string;
   notes: string;
   onNotesChange: (text: string) => void;
   onClose: (e: React.MouseEvent) => void;
+  userId: string;
 }) {
+  const [reminderTime, setReminderTime] = useState(med.reminderTime ?? '');
+  const [frequency,    setFrequency]    = useState(med.frequency ?? '');
+  const [now,          setNow]          = useState(new Date());
+
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(id); }, []);
+  useEffect(() => { setReminderTime(med.reminderTime ?? ''); }, [med.reminderTime]);
+  useEffect(() => { setFrequency(med.frequency ?? ''); }, [med.frequency]);
+
+  async function saveSchedule(time: string, freq: string) {
+    if (!userId) return;
+    await updateMedSchedule(userId, med.generic_name, time, freq);
+    try {
+      const raw = sessionStorage.getItem('pal_reminders_cache');
+      const cache: Record<string, { enabled: boolean; times: string[] }> = raw ? JSON.parse(raw) : {};
+      cache[med.generic_name] = { enabled: !!time, times: time ? [time] : [] };
+      sessionStorage.setItem('pal_reminders_cache', JSON.stringify(cache));
+    } catch {}
+  }
+
+  const untilText = timeUntil(reminderTime, now);
+
   return (
     <div className="flex flex-col" style={{ height: EXPANDED_H, backgroundColor: color }}>
       <div className="flex items-center justify-between px-5 shrink-0" style={{ height: HEADER_H }}>
         <div>
           <p className="text-white font-bold text-[16px]">{med.generic_name}</p>
-          <p className="text-[12px]" style={{ color: 'rgba(255,255,255,0.6)' }}>My information</p>
+          <p className="text-[12px]" style={{ color: 'rgba(255,255,255,0.6)' }}>My Schedule</p>
         </div>
         <button
           type="button"
@@ -707,11 +660,40 @@ function ExpandedBack({
         onPointerDown={e => e.stopPropagation()}
         onTouchStart={e => e.stopPropagation()}
       >
-        <BackRow label="Next dose" value="8:00 PM" sub="Evening · in 4h 32m" />
-        <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />
-        <BackRow label="Frequency" value={med.frequency} />
+        {/* Editable: Next dose time */}
+        <div className="flex items-center justify-between px-4 py-3 shrink-0">
+          <p className="text-[11px] font-bold uppercase tracking-widest shrink-0" style={{ color: '#378ADD' }}>Next dose</p>
+          <div className="flex flex-col items-end">
+            <input
+              type="time"
+              value={reminderTime}
+              onChange={e => setReminderTime(e.target.value)}
+              onBlur={() => saveSchedule(reminderTime, frequency)}
+              className="text-[14px] font-semibold outline-none text-right bg-transparent"
+              style={{ color: '#0C447C', fontFamily: 'inherit', border: 'none', cursor: 'pointer', minWidth: 0 }}
+            />
+            <p className="text-[12px]" style={{ color: '#9CA3AF' }}>
+              {reminderTime ? `${fmt12back(reminderTime)} · ${untilText}` : 'Tap to set a time'}
+            </p>
+          </div>
+        </div>
         <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />
 
+        {/* Editable: Frequency */}
+        <div className="flex items-center justify-between px-4 py-3 shrink-0">
+          <p className="text-[11px] font-bold uppercase tracking-widest shrink-0" style={{ color: '#378ADD' }}>Frequency</p>
+          <input
+            type="text"
+            value={frequency}
+            onChange={e => setFrequency(e.target.value)}
+            onBlur={() => saveSchedule(reminderTime, frequency)}
+            className="text-[14px] font-semibold outline-none text-right flex-1 ml-4 bg-transparent"
+            style={{ color: '#0C447C', fontFamily: 'inherit', border: 'none' }}
+          />
+        </div>
+        <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 16px' }} />
+
+        {/* Personal notes */}
         <div className="flex-1 flex flex-col px-4 py-3">
           <p className="text-[11px] font-bold uppercase tracking-widest mb-1.5" style={{ color: '#378ADD' }}>
             Personal notes
@@ -727,88 +709,6 @@ function ExpandedBack({
         </div>
       </div>
     </div>
-  );
-}
-
-function BackRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="flex items-center justify-between px-4 py-3 shrink-0">
-      <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#378ADD' }}>{label}</p>
-      <div className="text-right">
-        <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>{value}</p>
-        {sub && <p className="text-[12px]" style={{ color: '#9CA3AF' }}>{sub}</p>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Add-menu helpers ─────────────────────────────────────────────────────────
-
-function AddMenuOption({
-  icon, label, sub, onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  sub: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3 text-left"
-      style={{ backgroundColor: 'transparent' }}
-      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F5F8FF')}
-      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-    >
-      <div className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0" style={{ backgroundColor: '#EFF6FF' }}>
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[14px] font-semibold leading-tight" style={{ color: '#0C447C' }}>{label}</p>
-        <p className="text-[12px] mt-0.5" style={{ color: '#378ADD' }}>{sub}</p>
-      </div>
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-        <path d="M5 3L9 7L5 11" stroke="#D6E4F7" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function PencilMenuIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M13 2L16 5L6 15H3V12L13 2Z" stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
-function CameraMenuIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M6.5 3H11.5L13 5H16C16.6 5 17 5.4 17 6V14C17 14.6 16.6 15 16 15H2C1.4 15 1 14.6 1 14V6C1 5.4 1.4 5 2 5H5L6.5 3Z"
-        stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-      <circle cx="9" cy="10" r="2.5" stroke="#185FA5" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function PhotoMenuIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <rect x="1.5" y="3.5" width="15" height="11" rx="2" stroke="#185FA5" strokeWidth="1.5" fill="none" />
-      <circle cx="6" cy="7.5" r="1.2" fill="#185FA5" />
-      <path d="M1.5 12L5.5 8.5L8 11L11.5 7.5L16.5 13" stroke="#185FA5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 

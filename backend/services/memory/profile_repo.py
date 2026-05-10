@@ -65,33 +65,39 @@ def build_user_context(user_id: str) -> str:
     if all_allergies:
         lines.append(f"Allergies: {', '.join(all_allergies)}.")
 
-    # ── Current medications ───────────────────────────────────────────────────
+    # ── Current medications (full pill card data) ─────────────────────────────
     if meds:
-        lines.append("Current medications:")
+        lines.append("The user's scanned pill cards:")
         for med in meds:
-            name      = med.get("generic_name", "Unknown")
-            dosage    = med.get("dosage", "")
-            drug_class = med.get("drug_class", "")
-            rem       = reminders.get(name, {})
-            times     = rem.get("times", [])
-            freq      = rem.get("frequency") or med.get("frequency", "")
+            name        = med.get("generic_name", "Unknown")
+            common      = med.get("common_name", "")
+            dosage      = med.get("dosage", "")
+            form        = med.get("form", "")
+            drug_class  = med.get("drug_class", "")
+            active      = med.get("active_ingredient", "")
+            effects     = med.get("common_effects", "")
+            how_to_take = med.get("how_to_take", "")
+            manufacturer = med.get("manufacturer", "")
+            take_food   = med.get("take_with_food", False)
+            rem         = reminders.get(name, {})
+            times       = rem.get("times", [])
+            freq        = rem.get("frequency") or med.get("frequency", "")
+            conflicts   = med.get("conflicts", [])
 
-            line = f"  - {name} {dosage}".strip()
-            if drug_class:
-                line += f" ({drug_class})"
-            if freq:
-                line += f" — {freq}"
+            lines.append(f"  Medication: {common or name} ({name})")
+            if dosage:      lines.append(f"    Dosage: {dosage}")
+            if form:        lines.append(f"    Form: {form}")
+            if drug_class:  lines.append(f"    Drug class: {drug_class}")
+            if active:      lines.append(f"    Active ingredient: {active}")
+            if effects:     lines.append(f"    Common side effects: {effects}")
+            if how_to_take: lines.append(f"    How to take it: {how_to_take}")
+            if manufacturer: lines.append(f"    Manufacturer: {manufacturer}")
+            if take_food:   lines.append(f"    Take with food: yes")
+            if freq:        lines.append(f"    Frequency: {freq}")
             if times and rem.get("enabled"):
-                line += f" at {', '.join(times)}"
-            lines.append(line)
-
-        conflicts = []
-        for med in meds:
-            for c in med.get("conflicts", []):
-                if c and c not in conflicts:
-                    conflicts.append(c)
-        if conflicts:
-            lines.append(f"Known drug interactions: {'; '.join(conflicts)}.")
+                lines.append(f"    Reminder times: {', '.join(times)}")
+            if conflicts:
+                lines.append(f"    Known interactions: {'; '.join(conflicts)}")
 
     if not lines:
         return ""

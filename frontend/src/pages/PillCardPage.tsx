@@ -5,7 +5,7 @@ import type { MedData } from '../types';
 import type { AdviceItem } from '../services/claude';
 import { getPersonalizedAdvice } from '../services/claude';
 import { useAuth } from '../contexts/AuthContext';
-import { getMed, updateMedNotes, getUserProfile, removeMed } from '../database/firestore';
+import { getMed, updateMedNotes, updateMedReminderTime, getUserProfile, removeMed } from '../database/firestore';
 
 function getInitialMed(): MedData {
   try {
@@ -40,6 +40,8 @@ export default function PillCardPage() {
   const [isSquishing,   setIsSquishing]   = useState(false);
   const [isPressed,     setIsPressed]     = useState(false);
   const [notes,         setNotes]         = useState('');
+  const [reminderTime,  setReminderTime]  = useState('');
+  const [lastTakenDate, setLastTakenDate] = useState<string | null>(null);
   const [advice,        setAdvice]        = useState<AdviceItem[]>([]);
   const [adviceLoading, setAdviceLoading] = useState(false);
   const [removing,      setRemoving]      = useState(false);
@@ -52,6 +54,9 @@ export default function PillCardPage() {
         if (data) {
           setIsSaved(true);
           if (data.notes) setNotes(data.notes);
+          if (data.reminderTime) setReminderTime(data.reminderTime);
+          const d = data as typeof data & { lastTakenDate?: string };
+          if (d.lastTakenDate) setLastTakenDate(d.lastTakenDate);
         }
       })
       .catch(() => {});
@@ -74,6 +79,11 @@ export default function PillCardPage() {
   async function handleNotesChange(text: string) {
     setNotes(text);
     if (user) await updateMedNotes(user.uid, med.generic_name, text);
+  }
+
+  async function handleReminderTimeChange(time: string) {
+    setReminderTime(time);
+    if (user) await updateMedReminderTime(user.uid, med.generic_name, time).catch(() => {});
   }
 
   async function handleRemove() {
@@ -148,7 +158,7 @@ export default function PillCardPage() {
           }}
         >
           {showBack
-            ? <BackCard med={med} notes={notes} onNotesChange={handleNotesChange} />
+            ? <BackCard med={med} notes={notes} onNotesChange={handleNotesChange} reminderTime={reminderTime} onReminderTimeChange={handleReminderTimeChange} lastTakenDate={lastTakenDate} />
             : <PillCard data={med} onOkay={() => navigate('/')} advice={advice} adviceLoading={adviceLoading} isAlreadySaved={isSaved} onSaved={() => setIsSaved(true)} />}
         </div>
       </div>
@@ -195,19 +205,51 @@ export default function PillCardPage() {
 
 // ─── Back face ────────────────────────────────────────────────────────────────
 
+function formatTime12h(time24: string): string {
+  if (!time24) return 'Not set';
+  const [hStr, mStr] = time24.split(':');
+  const h = parseInt(hStr, 10);
+  const m = mStr ?? '00';
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m} ${ampm}`;
+}
+
+function formatLastTaken(dateStr: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (dateStr === today) return 'Today';
+  if (dateStr === yesterday) return 'Yesterday';
+  return dateStr;
+}
+
 function BackCard({
   med,
   notes,
   onNotesChange,
+  reminderTime,
+  onReminderTimeChange,
+  lastTakenDate,
 }: {
   med: MedData;
   notes: string;
   onNotesChange: (text: string) => void;
+  reminderTime: string;
+  onReminderTimeChange: (time: string) => Promise<void>;
+  lastTakenDate: string | null;
 }) {
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [draftTime, setDraftTime] = useState(reminderTime);
+
+  function handleSaveSchedule() {
+    onReminderTimeChange(draftTime);
+    setEditingSchedule(false);
+  }
+
   return (
     <div className="w-full overflow-hidden" style={{ borderRadius: 20 }}>
 
-      {/* Navy header — tapping this flips back */}
+      {/* Navy header */}
       <div className="px-5 pt-6 pb-5" style={{ backgroundColor: '#0C447C' }}>
         <div className="flex items-start gap-4 mb-1">
           <div
@@ -225,7 +267,7 @@ function BackCard({
         </div>
       </div>
 
-      {/* White body — block all pointer events so the card doesn't flip */}
+      {/* White body — block pointer events so the card doesn't flip */}
       <div
         className="bg-white"
         style={{ border: '0.5px solid #D6E4F7', borderTop: 'none' }}
@@ -237,12 +279,73 @@ function BackCard({
       >
 
         {/* Schedule */}
-        <SectionHeader label="My Schedule" />
-        <BackRow label="Next dose"  value="8:00 PM"   sub="Evening · in 4h 32m" />
-        <Divider />
-        <BackRow label="Frequency"  value={med.frequency} />
-        <Divider />
-        <BackRow label="Last taken" value="8:05 AM"   sub="This morning" />
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+          <p className="text-[12px] font-bold uppercase tracking-widest" style={{ color: '#378ADD' }}>My Schedule</p>
+          {!editingSchedule && (
+            <button
+              type="button"
+              onClick={() => { setDraftTime(reminderTime); setEditingSchedule(true); }}
+              className="text-[12px] font-semibold px-3 py-1 rounded-full"
+              style={{ color: '#185FA5', backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE' }}
+            >
+              Edit
+            </button>
+          )}
+        </div>
+
+        {editingSchedule ? (
+          <div className="px-5 pb-4 flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[13px] font-bold" style={{ color: '#0C447C' }}>Reminder time</label>
+              <input
+                type="time"
+                value={draftTime}
+                onChange={e => setDraftTime(e.target.value)}
+                className="outline-none text-[15px] px-3"
+                style={{
+                  height: 44, borderRadius: 10, border: '1.5px solid #185FA5',
+                  color: '#0C447C', fontFamily: 'inherit', backgroundColor: '#F5F8FF', width: '100%',
+                }}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] font-bold" style={{ color: '#0C447C' }}>Frequency</span>
+              <span className="text-[14px] px-3 py-2.5 rounded-[10px]" style={{ backgroundColor: '#F5F8FF', color: '#0C447C' }}>
+                {med.frequency}
+              </span>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleSaveSchedule}
+                className="flex-1 font-semibold text-[15px] text-white"
+                style={{ minHeight: 44, borderRadius: 100, backgroundColor: '#185FA5' }}
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingSchedule(false)}
+                className="font-semibold text-[15px] px-5"
+                style={{ minHeight: 44, borderRadius: 100, border: '1.5px solid #D6E4F7', color: '#9CA3AF' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <BackRow label="Reminder" value={formatTime12h(reminderTime)} sub={reminderTime ? med.frequency : undefined} />
+            <Divider />
+            <BackRow label="Frequency" value={med.frequency} />
+            {lastTakenDate && (
+              <>
+                <Divider />
+                <BackRow label="Last taken" value={formatLastTaken(lastTakenDate)} />
+              </>
+            )}
+          </>
+        )}
 
         <FullDivider />
 

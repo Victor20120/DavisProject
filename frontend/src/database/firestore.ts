@@ -168,6 +168,10 @@ export async function updateMedReminderTime(uid: string, genericName: string, re
   await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), { reminderTime });
 }
 
+export async function updateMedSchedule(uid: string, genericName: string, reminderTime: string, frequency: string) {
+  await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), { reminderTime, frequency });
+}
+
 export async function markMedTaken(uid: string, genericName: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), {

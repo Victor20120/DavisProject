@@ -116,10 +116,6 @@ export default function ScanButton({ onImageCapture, isScanning = false, isSucce
               </div>
             </div>
             <div className="hidden lg:flex items-center gap-2 shrink-0">
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-white font-semibold text-[15px]"
-                style={{ backgroundColor: 'rgba(0,0,0,0.18)' }}>
-                Open camera →
-              </div>
               <div
                 role="button"
                 onClick={e => { e.stopPropagation(); document.getElementById('pill-file-input')?.click(); }}
@@ -131,6 +127,28 @@ export default function ScanButton({ onImageCapture, isScanning = false, isSucce
             </div>
           </div>
         </button>
+      )}
+
+      {/* ── Mobile two-button row (lg:hidden) ── */}
+      {!open && (
+        <div className="flex gap-3 lg:hidden">
+          <button
+            type="button"
+            onClick={openCamera}
+            className="flex-1 flex items-center justify-center gap-2 font-semibold text-[15px] text-white"
+            style={{ minHeight: 48, borderRadius: 14, backgroundColor: '#185FA5' }}
+          >
+            <CameraIcon /> Camera
+          </button>
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); document.getElementById('pill-file-input')?.click(); }}
+            className="flex-1 flex items-center justify-center gap-2 font-semibold text-[15px]"
+            style={{ minHeight: 48, borderRadius: 14, border: '1.5px solid #185FA5', color: '#185FA5', backgroundColor: '#fff' }}
+          >
+            <UploadIcon color="#185FA5" /> Upload
+          </button>
+        </div>
       )}
 
       {/* ── Full-screen viewfinder ── */}
@@ -228,12 +246,12 @@ function CheckDot() {
   );
 }
 
-function UploadIcon() {
+function UploadIcon({ color = 'white' }: { color?: string }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="17 8 12 3 7 8" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="12" y1="3" x2="12" y2="15" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="17 8 12 3 7 8" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="12" y1="3" x2="12" y2="15" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

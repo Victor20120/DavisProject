@@ -110,7 +110,7 @@ export default function PillCard({ data, onOkay, advice, adviceLoading, isAlread
             </div>
             <EditField label="Drug class"        value={draft.drug_class}        onChange={v => patchDraft({ drug_class: v })} />
             <EditField label="Active ingredient" value={draft.active_ingredient} onChange={v => patchDraft({ active_ingredient: v })} />
-            <EditField label="Common effects"    value={draft.common_effects}    onChange={v => patchDraft({ common_effects: v })} />
+            <EditField label="Common side effects" value={draft.common_effects}    onChange={v => patchDraft({ common_effects: v })} />
             <EditField label="Manufacturer"      value={draft.manufacturer}      onChange={v => patchDraft({ manufacturer: v })} />
             <EditTextarea
               label="How to take it"
@@ -160,7 +160,7 @@ export default function PillCard({ data, onOkay, advice, adviceLoading, isAlread
               <div className="flex flex-col gap-3.5">
                 <InfoRow label="Drug class"        value={draft.drug_class} />
                 <InfoRow label="Active ingredient" value={draft.active_ingredient} />
-                <InfoRow label="Common effects"    value={draft.common_effects} />
+                <InfoRow label="Common side effects" value={draft.common_effects} />
                 <InfoRow label="Manufacturer"      value={draft.manufacturer} />
               </div>
             </div>
@@ -319,11 +319,11 @@ function AdviceCard({ item }: { item: AdviceItem }) {
 
 function PillIconWhite() {
   return (
-    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-      <rect x="2" y="10" width="22" height="8" rx="4"
-        transform="rotate(-45 2 10)"
-        stroke="white" strokeWidth="1.8" />
-      <line x1="7" y1="19" x2="19" y2="7" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+    <svg width="26" height="26" viewBox="0 0 22 22" fill="none">
+      <rect x="4" y="8" width="14" height="6" rx="3"
+        transform="rotate(-45 11 11)"
+        stroke="white" strokeWidth="1.5" fill="none" />
+      <line x1="8.5" y1="8.5" x2="13.5" y2="13.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
