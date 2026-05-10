@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #0C447C;
+  --color-brand: #185FA5;
+  --color-accent: #378ADD;
+  --color-surface: #F5F8FF;
+  --color-card: #ffffff;
+  --color-border: #D6E4F7;
+}
+
+@layer base {
+  html {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 16px;
+    background-color: #F5F8FF;
+    color: #0C447C;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  #root {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
+}

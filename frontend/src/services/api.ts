@@ -1,3 +1,4 @@
+// Backend API client — filled in by backend team
 const BASE_URL = 'http://localhost:8000';
 
 export interface MedResult {

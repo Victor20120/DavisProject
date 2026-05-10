@@ -1,3 +1,133 @@
+import ScanButton from '../components/ScanButton';
+import type { MedData } from '../types';
+
+const RECENT_MEDS: Pick<MedData, 'common_name' | 'generic_name' | 'dosage' | 'how_to_take' | 'conflicts'>[] = [
+  {
+    common_name: 'Blood Pressure Pill',
+    generic_name: 'Lisinopril',
+    dosage: '10mg',
+    how_to_take: 'Take one pill every morning with water. Lowers blood pressure.',
+    conflicts: ['Avoid potassium supplements'],
+  },
+  {
+    common_name: 'Diabetes Pill',
+    generic_name: 'Metformin',
+    dosage: '500mg',
+    how_to_take: 'Take with meals. Controls blood sugar levels.',
+    conflicts: [],
+  },
+];
+
 export default function Home() {
-  return <div>Home — scan button goes here</div>;
+  function handleImageCapture(base64: string) {
+    console.log('[Pill Pal] Home received base64, length:', base64.length);
+    // navigate to /pill-card — wired in Step 12
+  }
+
+  return (
+    <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
+
+      {/* Logo — mobile + tablet only (sidebar has it on desktop) */}
+      <div className="flex items-center gap-2 mb-7 lg:hidden">
+        <CapsuleIcon />
+        <span className="text-[28px] font-bold tracking-tight" style={{ color: '#0C447C' }}>Pal</span>
+      </div>
+
+      {/* Two-column layout on desktop */}
+      <div className="lg:grid lg:grid-cols-[1fr_260px] lg:gap-6 lg:items-start">
+
+        {/* ── Left / center column ── */}
+        <div className="flex flex-col gap-5">
+          <ScanButton onImageCapture={handleImageCapture} />
+
+          {/* Recently scanned */}
+          <section>
+            <h2 className="text-[16px] font-semibold mb-3" style={{ color: '#0C447C' }}>
+              Recently scanned
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {RECENT_MEDS.map(med => (
+                <RecentMedCard key={med.generic_name} med={med} />
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* ── Right panel — desktop only ── */}
+        <aside className="hidden lg:flex flex-col gap-4">
+
+          {/* Family loop widget */}
+          <div className="bg-white rounded-[20px] p-5" style={{ border: '0.5px solid #D6E4F7' }}>
+            <h3 className="text-[15px] font-bold mb-4" style={{ color: '#0C447C' }}>
+              Family loop
+            </h3>
+            <div className="flex flex-col gap-3">
+              {[
+                { name: 'Sarah', status: 'Watching' },
+                { name: 'James', status: 'Watching' },
+              ].map(m => (
+                <div key={m.name} className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[14px] text-white shrink-0"
+                    style={{ backgroundColor: '#185FA5' }}>
+                    {m.name[0]}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>{m.name}</p>
+                    <p className="text-[12px]" style={{ color: '#378ADD' }}>{m.status}</p>
+                  </div>
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Next reminder widget */}
+          <div className="rounded-[20px] p-5 text-white" style={{ backgroundColor: '#185FA5' }}>
+            <p className="text-[13px] font-semibold opacity-80 mb-1">Next reminder</p>
+            <p className="text-[14px] opacity-70">Lisinopril 10mg</p>
+            <p className="text-[32px] font-bold mt-1 leading-none">8:00 AM</p>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
 }
+
+type RecentMed = typeof RECENT_MEDS[number];
+
+function RecentMedCard({ med }: { med: RecentMed }) {
+  const safe = med.conflicts.length === 0;
+  return (
+    <div className="bg-white rounded-[16px] p-4 flex flex-col gap-2" style={{ border: '0.5px solid #D6E4F7' }}>
+      <p className="text-[17px] font-bold leading-tight" style={{ color: '#0C447C' }}>
+        {med.generic_name} {med.dosage}
+      </p>
+      <p className="text-[13px] leading-snug" style={{ color: '#378ADD' }}>
+        {med.how_to_take}
+      </p>
+      <div className="flex flex-wrap gap-1.5 mt-1">
+        <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+          style={{ backgroundColor: safe ? '#F0FDF4' : '#FEF2F2', color: safe ? '#16A34A' : '#DC2626' }}>
+          {safe ? '✓ Safe' : '⚠ Conflict'}
+        </span>
+        {med.conflicts.map((c, i) => (
+          <span key={i} className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+            style={{ backgroundColor: '#FFFBEB', color: '#92400E' }}>
+            ⚠ {c}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CapsuleIcon() {
+  return (
+    <svg width="24" height="40" viewBox="0 0 24 40" fill="none">
+      <path d="M12 1C6.477 1 2 5.477 2 11V20H22V11C22 5.477 17.523 1 12 1Z" fill="#0C447C" />
+      <path d="M2 20V29C2 34.523 6.477 39 12 39C17.523 39 22 34.523 22 29V20H2Z" fill="#185FA5" />
+      <line x1="2" y1="20" x2="22" y2="20" stroke="white" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
