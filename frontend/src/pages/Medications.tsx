@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { MedData, ConflictResult } from '../types';
 import ConflictAlert from '../components/ConflictAlert';
 import { useAuth } from '../contexts/AuthContext';
-import { onMedsChanged, updateMedNotes, seedDemoData } from '../database/firestore';
+import { onMedsChanged, updateMedNotes, seedDemoData, saveMed } from '../database/firestore';
 
 // ─── Mock conflicts (until conflict checker is wired to Claude) ───────────────
 
@@ -40,6 +40,7 @@ export default function Medications() {
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [viewMode, setViewMode]           = useState<'stack' | 'list'>('stack');
   const [showAddMenu, setShowAddMenu]     = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
   const navigate   = useNavigate();
   const addMenuRef = useRef<HTMLDivElement>(null);
 
@@ -176,7 +177,7 @@ export default function Medications() {
                   icon={<PencilMenuIcon />}
                   label="Add manually"
                   sub="Type in med details"
-                  onClick={() => { setShowAddMenu(false); console.log('[Pill Pal] Manual add — coming soon'); }}
+                  onClick={() => { setShowAddMenu(false); setShowManualForm(true); }}
                 />
               </div>
             </div>
@@ -335,6 +336,135 @@ export default function Medications() {
           </div>
         )}
 
+      </div>
+
+      {/* Manual add modal */}
+      {showManualForm && (
+        <ManualAddModal
+          onClose={() => setShowManualForm(false)}
+          onSave={async (med) => {
+            if (user) await saveMed(user.uid, med);
+            setShowManualForm(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Manual add modal ─────────────────────────────────────────────────────────
+
+function ManualAddModal({ onClose, onSave }: {
+  onClose: () => void;
+  onSave:  (med: MedData) => Promise<void>;
+}) {
+  const EMPTY: MedData = {
+    common_name: '', generic_name: '', dosage: '', form: 'Oral tablet',
+    drug_class: '', active_ingredient: '', common_effects: '',
+    manufacturer: '', how_to_take: '', frequency: 'Once daily',
+    take_with_food: false, conflicts: [],
+  };
+  const [form, setForm]   = useState<MedData>(EMPTY);
+  const [saving, setSaving] = useState(false);
+
+  function set(key: keyof MedData, val: string | boolean) {
+    setForm(prev => ({ ...prev, [key]: val }));
+  }
+
+  async function handleSave() {
+    if (!form.generic_name.trim()) return;
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end lg:items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(12,68,124,0.35)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-[520px] rounded-[24px] overflow-hidden"
+        style={{ backgroundColor: '#fff', maxHeight: '90vh', overflowY: 'auto' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4" style={{ backgroundColor: '#0C447C' }}>
+          <p className="text-white font-bold text-[17px]">Add medication</p>
+          <button type="button" onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 2L10 10M10 2L2 10" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-0 divide-y" style={{ borderColor: '#D6E4F7' }}>
+          {([
+            ['Common name',       'common_name',       'e.g. Blood Pressure Pill'],
+            ['Generic name *',    'generic_name',       'e.g. Lisinopril'],
+            ['Dosage',            'dosage',             'e.g. 10mg'],
+            ['Drug class',        'drug_class',         'e.g. ACE Inhibitor'],
+            ['Active ingredient', 'active_ingredient',  'e.g. Lisinopril 10mg'],
+            ['Common effects',    'common_effects',     'e.g. Dizziness, dry cough'],
+            ['Manufacturer',      'manufacturer',       'e.g. Lupin Pharma'],
+            ['Frequency',         'frequency',          'e.g. Once daily'],
+          ] as [string, keyof MedData, string][]).map(([label, key, placeholder]) => (
+            <div key={key} className="flex items-center justify-between px-5 py-3 gap-3">
+              <p className="text-[13px] font-semibold shrink-0" style={{ color: '#378ADD' }}>{label}</p>
+              <input
+                type="text"
+                placeholder={placeholder}
+                value={form[key] as string}
+                onChange={e => set(key, e.target.value)}
+                className="flex-1 text-right text-[14px] outline-none bg-transparent"
+                style={{ color: '#0C447C', fontFamily: 'inherit' }}
+              />
+            </div>
+          ))}
+
+          {/* How to take */}
+          <div className="px-5 py-3">
+            <p className="text-[13px] font-semibold mb-2" style={{ color: '#378ADD' }}>How to take</p>
+            <textarea
+              rows={3}
+              placeholder="Plain-English instructions…"
+              value={form.how_to_take}
+              onChange={e => set('how_to_take', e.target.value)}
+              className="w-full resize-none outline-none text-[14px] rounded-[12px] p-3"
+              style={{ backgroundColor: '#F5F8FF', color: '#0C447C', fontFamily: 'inherit', border: '0.5px solid #D6E4F7' }}
+            />
+          </div>
+
+          {/* Take with food toggle */}
+          <div className="flex items-center justify-between px-5 py-3">
+            <p className="text-[13px] font-semibold" style={{ color: '#378ADD' }}>Take with food</p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.take_with_food}
+              onClick={() => set('take_with_food', !form.take_with_food)}
+              className="relative inline-flex h-7 w-12 rounded-full transition-colors duration-200"
+              style={{ backgroundColor: form.take_with_food ? '#185FA5' : '#D6E4F7' }}
+            >
+              <span className="absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all duration-200"
+                style={{ left: form.take_with_food ? '22px' : '4px' }} />
+            </button>
+          </div>
+        </div>
+
+        {/* Save button */}
+        <div className="px-5 py-4">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !form.generic_name.trim()}
+            className="w-full font-bold text-[15px] text-white disabled:opacity-50 transition-transform active:scale-[0.98]"
+            style={{ minHeight: 52, borderRadius: 100, backgroundColor: '#185FA5' }}
+          >
+            {saving ? 'Saving…' : 'Save medication'}
+          </button>
+        </div>
       </div>
     </div>
   );
