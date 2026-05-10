@@ -3,16 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { signOut } from '../database/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { saveAllReminders, loadAllReminders } from '../database/firestore';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ReminderEntry {
-  enabled: boolean;
-  times: string[];
-  frequency: string;
-}
-
-type ReminderMap = Record<string, ReminderEntry>;
+import {
+  requestNotificationPermission,
+  scheduleReminders,
+  subscribeToPush,
+  type ReminderEntry,
+  type ReminderMap,
+} from '../services/reminders';
 
 // ─── Meds (mirrors Medications page mock data) ────────────────────────────────
 
@@ -54,20 +51,45 @@ export default function Settings() {
   const { user }                         = useAuth();
   const [reminders, setReminders]       = useState<ReminderMap>(DEFAULTS);
   const [openIndex, setOpenIndex]       = useState<number | null>(null);
-  const [editIndex, setEditIndex]       = useState<number | null>(null);
-  const [pressedIndex, setPressedIndex] = useState<number | null>(null);
+  const [editIndex, setEditIndex]         = useState<number | null>(null);
+  const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
+  const [notifBlocked, setNotifBlocked]   = useState(false);
+
+  useEffect(() => {
+    requestNotificationPermission().then(p => setNotifBlocked(p === 'denied'));
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    subscribeToPush(user.uid).catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
     loadAllReminders(user.uid).then(data => {
-      if (data) setReminders(data as ReminderMap);
+      if (data) {
+        const loaded = data as ReminderMap;
+        setReminders(loaded);
+        scheduleReminders(withNames(loaded)).catch(() => {});
+      }
     }).catch(() => {});
   }, [user]);
+
+  // Augments a ReminderMap with common_name so the SW can show a friendly title.
+  function withNames(map: ReminderMap): ReminderMap {
+    const result: ReminderMap = {};
+    for (const med of MEDS) {
+      const entry = map[med.generic_name];
+      if (entry) result[med.generic_name] = { ...entry, commonName: med.common_name };
+    }
+    return result;
+  }
 
   function update(genericName: string, patch: Partial<ReminderEntry>) {
     setReminders(prev => {
       const next = { ...prev, [genericName]: { ...prev[genericName], ...patch } };
       if (user) saveAllReminders(user.uid, next).catch(() => {});
+      scheduleReminders(withNames(next)).catch(() => {});
       return next;
     });
   }
@@ -344,9 +366,26 @@ export default function Settings() {
           })}
         </div>
 
+        {/* Notification permission blocked warning */}
+        {notifBlocked && (
+          <div
+            className="mt-5 rounded-2xl px-4 py-3.5 flex items-start gap-3"
+            style={{ backgroundColor: '#FEF2F2', border: '0.5px solid #FECACA' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 mt-0.5">
+              <circle cx="8" cy="8" r="7" stroke="#DC2626" strokeWidth="1.4" />
+              <path d="M8 5V8.5" stroke="#DC2626" strokeWidth="1.4" strokeLinecap="round" />
+              <circle cx="8" cy="11" r="0.7" fill="#DC2626" />
+            </svg>
+            <p className="text-[13px] leading-relaxed" style={{ color: '#DC2626' }}>
+              Notifications are blocked. To receive reminders, go to your browser settings and allow notifications for this site.
+            </p>
+          </div>
+        )}
+
         {/* Info tip */}
         <div
-          className="mt-5 rounded-[16px] px-4 py-3.5 flex items-start gap-3"
+          className="mt-5 rounded-2xl px-4 py-3.5 flex items-start gap-3"
           style={{ backgroundColor: '#EFF6FF', border: '0.5px solid #D6E4F7' }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 mt-0.5">

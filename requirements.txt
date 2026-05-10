@@ -4,3 +4,5 @@ python-dotenv
 httpx
 firebase-admin
 anthropic
+elevenlabs
+pywebpush
