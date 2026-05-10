@@ -16,7 +16,8 @@ async def scan_pill_bottle_route(body: ScanRequest):
         result = scan_pill_bottle(body.image_base64, body.media_type)
         return result
     except Exception as e:
-        print(f"[Pill Pal] Scan failed: {e}")
+        import traceback
+        print(f"[Pill Pal] Scan failed: {e}\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
             detail="Could not read the label. Please try again in better lighting.",

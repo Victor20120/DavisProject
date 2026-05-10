@@ -27,8 +27,15 @@ Respond ONLY in this JSON format, no extra text, no markdown backticks:
 
 def scan_pill_bottle(base64_image: str, media_type: str = "image/jpeg") -> dict:
     """Send a pill bottle image to Claude Vision and return structured MedData."""
+    # Claude only accepts these four types — normalize anything else to jpeg
+    valid_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    if media_type not in valid_types:
+        media_type = "image/jpeg"
+
+    print(f"[Pill Pal] Sending to Claude — media_type={media_type}, base64 length={len(base64_image)}")
+
     message = _client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-4-5",
         max_tokens=1024,
         messages=[{
             "role": "user",
@@ -50,5 +57,18 @@ def scan_pill_bottle(base64_image: str, media_type: str = "image/jpeg") -> dict:
     )
 
     raw = message.content[0].text
-    print(f"[Pill Pal] Raw Claude response: {raw}")
-    return json.loads(raw)
+    print(f"[Pill Pal] Raw Claude response:\n{raw}")
+
+    # Claude sometimes wraps the JSON in markdown code fences (```json ... ```)
+    # even when told not to. Strip them so json.loads() doesn't crash.
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        # Remove the opening fence (```json or just ```) and the closing ```
+        cleaned = cleaned.split("\n", 1)[-1]  # drop first line
+        cleaned = cleaned.rsplit("```", 1)[0]  # drop closing fence
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        print(f"[Pill Pal] JSON parse failed: {e}\nCleaned text was:\n{cleaned}")
+        raise
