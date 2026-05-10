@@ -3,10 +3,8 @@ from datetime import datetime, timedelta
 from services.firebase import db
 from services.notifications.push import send_push
 
-# Tracks when each (uid, med, time) last fired — keyed to a timestamp.
-# Prevents double-firing across minute boundaries.
 _fired: dict[str, float] = {}
-_COOLDOWN = 90  # seconds — won't re-fire the same reminder within 90 s
+_COOLDOWN = 90
 
 
 def _already_fired(key: str) -> bool:
@@ -16,10 +14,8 @@ def _already_fired(key: str) -> bool:
 
 def _mark_fired(key: str):
     _fired[key] = time.time()
-    # Clean up entries older than 2 minutes so the dict doesn't grow forever
     cutoff = time.time() - 120
-    stale = [k for k, t in _fired.items() if t < cutoff]
-    for k in stale:
+    for k in [k for k, t in _fired.items() if t < cutoff]:
         del _fired[k]
 
 
@@ -27,20 +23,18 @@ def _tick():
     now       = datetime.now()
     hhmm      = now.strftime("%H:%M")
     prev_hhmm = (now - timedelta(minutes=1)).strftime("%H:%M")
-    print(f"[reminder_runner] tick {hhmm}")
+    print(f"[runner] tick {hhmm} (also checking {prev_hhmm})")
 
     try:
         users = list(db.collection("users").stream())
-        if not users:
-            print("[reminder_runner] no users in Firestore yet")
-            return
+        print(f"[runner] users in Firestore: {len(users)}")
         for user_doc in users:
             try:
                 _check_user(user_doc.id, hhmm, prev_hhmm)
             except Exception as e:
-                print(f"[reminder_runner] error for {user_doc.id}: {e}")
+                print(f"[runner] error for {user_doc.id}: {e}")
     except Exception as e:
-        print(f"[reminder_runner] tick error: {e}")
+        print(f"[runner] tick error: {e}")
 
 
 def _check_user(uid: str, hhmm: str, prev_hhmm: str):
@@ -50,28 +44,35 @@ def _check_user(uid: str, hhmm: str, prev_hhmm: str):
           .get()
     )
     if not rem_snap.exists:
+        print(f"[runner] {uid[:8]}: no reminders saved yet")
         return
 
     try:
         reminders = json.loads(rem_snap.to_dict().get("data", "{}"))
     except Exception as e:
-        print(f"[reminder_runner] {uid}: bad reminders JSON — {e}")
+        print(f"[runner] {uid[:8]}: bad JSON — {e}")
         return
+
+    print(f"[runner] {uid[:8]}: reminders = {list(reminders.keys())}")
 
     due = []
     for name, entry in reminders.items():
-        if not entry.get("enabled"):
+        enabled = entry.get("enabled")
+        times   = entry.get("times", [])
+        print(f"[runner]   {name}: enabled={enabled} times={times}")
+        if not enabled:
             continue
-        for t in entry.get("times", []):
-            if t not in (hhmm, prev_hhmm):
-                continue
+        for t in times:
             key = f"{uid}__{name}__{t}"
-            if _already_fired(key):
-                continue
-            due.append((name, entry))
-            _mark_fired(key)
+            match = t in (hhmm, prev_hhmm)
+            fired = _already_fired(key)
+            print(f"[runner]     time={t} match={match} already_fired={fired}")
+            if match and not fired:
+                due.append((name, entry))
+                _mark_fired(key)
 
     if not due:
+        print(f"[runner] {uid[:8]}: nothing due")
         return
 
     subs = [
@@ -79,8 +80,10 @@ def _check_user(uid: str, hhmm: str, prev_hhmm: str):
         for s in db.collection("users").document(uid)
                    .collection("push_subscriptions").stream()
     ]
+    print(f"[runner] {uid[:8]}: {len(due)} due, {len(subs)} subscriptions")
+
     if not subs:
-        print(f"[reminder_runner] {uid}: reminder due but no push subscription — visit Settings")
+        print(f"[runner] {uid[:8]}: NO push subscription — visit Settings")
         return
 
     for name, entry in due:
@@ -98,4 +101,4 @@ def _run():
 
 def start():
     threading.Thread(target=_run, daemon=True).start()
-    print("[reminder_runner] started — ticking every 30 s")
+    print("[runner] started — ticking every 30 s")
