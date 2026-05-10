@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import type { MedData, ConflictResult } from '../types';
 import ConflictAlert from '../components/ConflictAlert';
 import { useAuth } from '../contexts/AuthContext';
-import { onMedsChanged, updateMedNotes, seedDemoData, saveMed } from '../database/firestore';
+import { onMedsChanged, updateMedNotes, seedDemoData, saveMed, markMedTaken } from '../database/firestore';
+import { scanPillBottle } from '../services/api';
 
 // ─── Mock conflicts (until conflict checker is wired to Claude) ───────────────
 
@@ -29,7 +30,7 @@ const EXPANDED_H = 360;
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-type FirestoreMed = MedData & { notes: string; reminderTime: string };
+type FirestoreMed = MedData & { notes: string; reminderTime: string; lastTakenDate?: string };
 
 export default function Medications() {
   const { user }                          = useAuth();
@@ -39,10 +40,13 @@ export default function Medications() {
   const [isFlipped, setIsFlipped]         = useState(false);
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [viewMode, setViewMode]           = useState<'stack' | 'list'>('stack');
-  const [showAddMenu, setShowAddMenu]     = useState(false);
+  const [showAddMenu, setShowAddMenu]       = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
-  const navigate   = useNavigate();
-  const addMenuRef = useRef<HTMLDivElement>(null);
+  const [isScanning, setIsScanning]         = useState(false);
+  const navigate       = useNavigate();
+  const addMenuRef     = useRef<HTMLDivElement>(null);
+  const photoInputRef  = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const notesMap = Object.fromEntries(meds.map(m => [m.generic_name, m.notes ?? '']));
 
@@ -125,6 +129,55 @@ export default function Medications() {
     setIsFlipped(false);
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+
+  async function handleMarkTaken(e: React.MouseEvent, med: FirestoreMed) {
+    e.stopPropagation();
+    if (!user) return;
+    await markMedTaken(user.uid, med.generic_name);
+    // Browser notification
+    if ('Notification' in window) {
+      const perm = Notification.permission === 'default'
+        ? await Notification.requestPermission()
+        : Notification.permission;
+      if (perm === 'granted') {
+        new Notification(`${med.common_name} marked as taken`, {
+          body: `${med.generic_name} ${med.dosage} — ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+          icon: '/favicon.svg',
+          tag:  `taken-${med.generic_name}`,
+        });
+      }
+    }
+    // Notify family + send email (fire-and-forget)
+    fetch('http://localhost:8000/family/notify', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        inviter_uid:  user.uid,
+        med_name:     `${med.common_name} (${med.generic_name} ${med.dosage})`,
+        status:       'taken',
+        display_name: user.displayName ?? 'Your family member',
+      }),
+    }).catch(() => {});
+  }
+
+  async function handleScan(file: File) {
+    setIsScanning(true);
+    setShowAddMenu(false);
+    try {
+      const base64 = await fileToBase64(file);
+      const data   = await scanPillBottle(base64, file.type || 'image/jpeg');
+      sessionStorage.setItem('lastScan', JSON.stringify(data));
+      navigate('/pill-card');
+    } catch (err) {
+      console.error('[Pill Pal] Scan failed', err);
+      alert('Could not read that label. Try a clearer photo or better lighting.');
+    } finally {
+      setIsScanning(false);
+    }
+  }
+
+
   return (
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
       <div className="w-full max-w-[520px] mx-auto">
@@ -139,18 +192,32 @@ export default function Medications() {
               </p>
             </div>
 
+            {/* Hidden file inputs for scan */}
+            <input ref={photoInputRef}  type="file" accept="image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleScan(f); e.target.value = ''; }} />
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleScan(f); e.target.value = ''; }} />
+
             {/* Add button + dropdown */}
             <div className="relative shrink-0 pt-1" ref={addMenuRef}>
               <button
                 type="button"
                 onClick={() => setShowAddMenu(v => !v)}
+                disabled={isScanning}
                 className="flex items-center gap-1.5 px-3.5 rounded-full font-semibold text-[14px] text-white transition-transform active:scale-95"
-                style={{ backgroundColor: '#185FA5', height: 36 }}
+                style={{ backgroundColor: '#185FA5', height: 36, opacity: isScanning ? 0.7 : 1 }}
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-                Add
+                {isScanning ? (
+                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <circle cx="7" cy="7" r="5.5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.6" />
+                    <path d="M7 1.5C4 1.5 1.5 4 1.5 7" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                )}
+                {isScanning ? 'Scanning…' : 'Add'}
               </button>
 
               {/* Dropdown */}
@@ -173,6 +240,20 @@ export default function Medications() {
                   transition: 'opacity 0.16s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 }}
               >
+                <AddMenuOption
+                  icon={<CameraMenuIcon />}
+                  label="Camera"
+                  sub="Point at pill bottle"
+                  onClick={() => { setShowAddMenu(false); cameraInputRef.current?.click(); }}
+                />
+                <div style={{ height: '0.5px', backgroundColor: '#F0F7FF', margin: '0 16px' }} />
+                <AddMenuOption
+                  icon={<PhotoMenuIcon />}
+                  label="Upload photo"
+                  sub="From your photo library"
+                  onClick={() => { setShowAddMenu(false); photoInputRef.current?.click(); }}
+                />
+                <div style={{ height: '0.5px', backgroundColor: '#F0F7FF', margin: '0 16px' }} />
                 <AddMenuOption
                   icon={<PencilMenuIcon />}
                   label="Add manually"
@@ -278,7 +359,9 @@ export default function Medications() {
                               med={med}
                               color={color}
                               notes={notesMap[med.generic_name] ?? ''}
+                              takenToday={med.lastTakenDate === today}
                               onClose={handleClose}
+                              onMarkTaken={e => handleMarkTaken(e, med)}
                               onViewFull={e => {
                                 e.stopPropagation();
                                 sessionStorage.setItem('lastScan', JSON.stringify(med));
@@ -502,13 +585,15 @@ function CompactCard({ med, color }: { med: MedData; color: string }) {
 // ─── Expanded front face ──────────────────────────────────────────────────────
 
 function ExpandedFront({
-  med, color, notes, onClose, onViewFull,
+  med, color, notes, takenToday, onClose, onViewFull, onMarkTaken,
 }: {
   med: MedData;
   color: string;
   notes: string;
+  takenToday: boolean;
   onClose: (e: React.MouseEvent) => void;
   onViewFull: (e: React.MouseEvent) => void;
+  onMarkTaken: (e: React.MouseEvent) => void;
 }) {
   const safe = med.conflicts.length === 0;
   return (
@@ -560,6 +645,28 @@ function ExpandedFront({
           <p className="text-center text-[12px] font-medium" style={{ color: '#C7D9EF' }}>
             Tap card to flip for your info
           </p>
+          <button
+            type="button"
+            onClick={onMarkTaken}
+            disabled={takenToday}
+            className="w-full flex items-center justify-center gap-1.5 font-semibold text-[14px] transition-all active:scale-[0.98]"
+            style={{
+              minHeight: 42,
+              borderRadius: 100,
+              backgroundColor: takenToday ? '#F0FDF4' : '#16A34A',
+              color: takenToday ? '#16A34A' : '#fff',
+              border: takenToday ? '1px solid #4ADE80' : 'none',
+            }}
+          >
+            {takenToday ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M2 7L5.5 10.5L12 3.5" stroke="#16A34A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Taken today
+              </>
+            ) : 'Mark as taken'}
+          </button>
           <button
             type="button"
             onClick={onViewFull}
@@ -682,10 +789,39 @@ function AddMenuOption({
   );
 }
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function PencilMenuIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
       <path d="M13 2L16 5L6 15H3V12L13 2Z" stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+function CameraMenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M6.5 3H11.5L13 5H16C16.6 5 17 5.4 17 6V14C17 14.6 16.6 15 16 15H2C1.4 15 1 14.6 1 14V6C1 5.4 1.4 5 2 5H5L6.5 3Z"
+        stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+      <circle cx="9" cy="10" r="2.5" stroke="#185FA5" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function PhotoMenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="1.5" y="3.5" width="15" height="11" rx="2" stroke="#185FA5" strokeWidth="1.5" fill="none" />
+      <circle cx="6" cy="7.5" r="1.2" fill="#185FA5" />
+      <path d="M1.5 12L5.5 8.5L8 11L11.5 7.5L16.5 13" stroke="#185FA5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

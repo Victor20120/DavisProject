@@ -10,8 +10,10 @@ frontend/.env
 backend/.env
 
 # Frontend build
+node_modules/
 frontend/node_modules/
 frontend/dist/
 
 # Firebase service account key
 *.json
+backend/.env.example

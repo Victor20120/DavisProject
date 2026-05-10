@@ -11,6 +11,7 @@ import Medications from './pages/Medications';
 import Family from './pages/Family';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
+import JoinFamily from './pages/JoinFamily';
 import { getUserProfile } from './database/firestore';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -86,6 +87,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/join/:token" element={<JoinFamily />} />
           <Route
             path="/onboarding"
             element={
