@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react';
 
 interface ScanButtonProps {
-  onImageCapture: (base64: string) => void;
+  onImageCapture: (base64: string, mediaType: string) => void;
+  isScanning?: boolean;  // true while the API call is in flight
 }
 
-export default function ScanButton({ onImageCapture }: ScanButtonProps) {
+export default function ScanButton({ onImageCapture, isScanning = false }: ScanButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
+  const busy = loading || isScanning;
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -15,8 +17,7 @@ export default function ScanButton({ onImageCapture }: ScanButtonProps) {
     try {
       const base64 = await fileToBase64(file);
       console.log('[Pill Pal] Image captured — base64 length:', base64.length);
-      console.log('[Pill Pal] base64 preview:', base64.slice(0, 80) + '...');
-      onImageCapture(base64);
+      onImageCapture(base64, file.type || 'image/jpeg');
     } catch (err) {
       console.error('[Pill Pal] Failed to read image:', err);
     } finally {
@@ -40,7 +41,7 @@ export default function ScanButton({ onImageCapture }: ScanButtonProps) {
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        disabled={loading}
+        disabled={busy}
         className="w-full text-left disabled:opacity-60"
         style={{ backgroundColor: '#185FA5', borderRadius: '20px' }}
       >
@@ -51,14 +52,14 @@ export default function ScanButton({ onImageCapture }: ScanButtonProps) {
               className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
               style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}
             >
-              {loading ? <Spinner /> : <CameraIcon />}
+              {busy ? <Spinner /> : <CameraIcon />}
             </div>
             <div className="min-w-0">
               <p className="text-white font-bold text-[20px] leading-tight">
-                {loading ? 'Reading...' : 'Scan a pill bottle'}
+                {isScanning ? 'Analyzing label...' : loading ? 'Reading image...' : 'Scan a pill bottle'}
               </p>
               <p className="text-[14px] mt-0.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                {loading ? 'Processing your image' : 'Point your camera at any label'}
+                {isScanning ? 'Claude is reading your label' : loading ? 'Processing your image' : 'Point your camera at any label'}
               </p>
             </div>
           </div>

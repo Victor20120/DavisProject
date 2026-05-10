@@ -1,4 +1,7 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ScanButton from '../components/ScanButton';
+import { scanPillBottle } from '../services/api';
 import type { MedData } from '../types';
 
 const RECENT_MEDS: Pick<MedData, 'common_name' | 'generic_name' | 'dosage' | 'how_to_take' | 'conflicts'>[] = [
@@ -19,9 +22,24 @@ const RECENT_MEDS: Pick<MedData, 'common_name' | 'generic_name' | 'dosage' | 'ho
 ];
 
 export default function Home() {
-  function handleImageCapture(base64: string) {
-    console.log('[Pill Pal] Home received base64, length:', base64.length);
-    // navigate to /pill-card — wired in Step 12
+  const navigate = useNavigate();
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleImageCapture(base64: string, mediaType: string) {
+    setScanning(true);
+    setError(null);
+    try {
+      const med = await scanPillBottle(base64, mediaType);
+      sessionStorage.setItem('lastScan', JSON.stringify(med));
+      navigate('/pill-card');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Scan failed. Please try again.';
+      setError(msg);
+      console.error('[Pill Pal] Scan error:', err);
+    } finally {
+      setScanning(false);
+    }
   }
 
   return (
@@ -38,7 +56,15 @@ export default function Home() {
 
         {/* ── Left / center column ── */}
         <div className="flex flex-col gap-5">
-          <ScanButton onImageCapture={handleImageCapture} />
+          <ScanButton onImageCapture={handleImageCapture} isScanning={scanning} />
+
+          {error && (
+            <div className="rounded-[14px] px-4 py-3 flex items-center gap-3"
+              style={{ backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5' }}>
+              <span className="text-[18px]">⚠️</span>
+              <p className="text-[14px] font-medium" style={{ color: '#991B1B' }}>{error}</p>
+            </div>
+          )}
 
           {/* Recently scanned */}
           <section>

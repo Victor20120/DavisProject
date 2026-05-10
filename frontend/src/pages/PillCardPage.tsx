@@ -2,6 +2,14 @@ import { useState } from 'react';
 import PillCard from '../components/PillCard';
 import type { MedData } from '../types';
 
+function getInitialMed(): MedData {
+  try {
+    const stored = sessionStorage.getItem('lastScan');
+    if (stored) return JSON.parse(stored) as MedData;
+  } catch {}
+  return MOCK_MED;
+}
+
 const MOCK_MED: MedData = {
   common_name: 'Blood Pressure Pill',
   generic_name: 'Lisinopril',
@@ -19,6 +27,7 @@ const MOCK_MED: MedData = {
 };
 
 export default function PillCardPage() {
+  const [med] = useState<MedData>(getInitialMed);
   const [showBack,    setShowBack]    = useState(false);
   const [isSquishing, setIsSquishing] = useState(false);
   const [isPressed,   setIsPressed]   = useState(false);
@@ -82,7 +91,7 @@ export default function PillCardPage() {
             transition: 'transform 0.16s ease',
           }}
         >
-          {showBack ? <BackCard med={MOCK_MED} /> : <PillCard data={MOCK_MED} />}
+          {showBack ? <BackCard med={med} /> : <PillCard data={med} />}
         </div>
       </div>
     </div>
