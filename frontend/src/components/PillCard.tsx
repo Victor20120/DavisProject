@@ -2,11 +2,10 @@ import type { MedData } from '../types';
 
 interface PillCardProps {
   data: MedData;
-  onSave?: () => void;
-  onSetReminder?: () => void;
+  onOkay?: () => void;
 }
 
-export default function PillCard({ data, onSave, onSetReminder }: PillCardProps) {
+export default function PillCard({ data, onOkay }: PillCardProps) {
   const safe = data.conflicts.length === 0;
 
   return (
@@ -79,23 +78,22 @@ export default function PillCard({ data, onSave, onSetReminder }: PillCardProps)
           </div>
         </div>
 
-        {/* Buttons */}
+        {/* Action buttons */}
         <div className="flex gap-3 px-5 pb-5">
           <button
             type="button"
-            onClick={() => { console.log('[Pill Pal] Save card:', data.generic_name); onSave?.(); }}
-            className="flex-1 font-semibold text-[16px]"
-            style={{ minHeight: '52px', borderRadius: '100px', border: '1.5px solid #185FA5', color: '#185FA5', backgroundColor: 'white' }}
-          >
-            Save Card
-          </button>
-          <button
-            type="button"
-            onClick={() => { console.log('[Pill Pal] Set reminder:', data.generic_name); onSetReminder?.(); }}
+            onClick={onOkay}
             className="flex-1 font-semibold text-[16px] text-white"
             style={{ minHeight: '52px', borderRadius: '100px', backgroundColor: '#185FA5' }}
           >
-            Set Reminder
+            Add to Medications
+          </button>
+          <button
+            type="button"
+            className="flex-1 font-semibold text-[16px]"
+            style={{ minHeight: '52px', borderRadius: '100px', border: '1.5px solid #185FA5', color: '#185FA5', backgroundColor: 'white' }}
+          >
+            Edit
           </button>
         </div>
       </div>

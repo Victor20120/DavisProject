@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PillCard from '../components/PillCard';
 import type { MedData } from '../types';
 
@@ -27,6 +28,7 @@ const MOCK_MED: MedData = {
 };
 
 export default function PillCardPage() {
+  const navigate = useNavigate();
   const [med] = useState<MedData>(getInitialMed);
   const [showBack,    setShowBack]    = useState(false);
   const [isSquishing, setIsSquishing] = useState(false);
@@ -91,7 +93,7 @@ export default function PillCardPage() {
             transition: 'transform 0.16s ease',
           }}
         >
-          {showBack ? <BackCard med={med} /> : <PillCard data={med} />}
+          {showBack ? <BackCard med={med} /> : <PillCard data={med} onOkay={() => navigate('/')} />}
         </div>
       </div>
     </div>
