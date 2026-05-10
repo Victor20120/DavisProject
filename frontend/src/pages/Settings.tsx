@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from '../database/auth';
 import { useAuth } from '../contexts/AuthContext';
-import { saveAllReminders, loadAllReminders } from '../database/firestore';
+import { saveAllReminders, loadAllReminders, saveHealthSettings, loadHealthSettings, type HealthSettings } from '../database/firestore';
 import {
   requestNotificationPermission,
   scheduleReminders,
@@ -27,6 +27,19 @@ const DEFAULTS: ReminderMap = {
   Metformin:  { enabled: true,  times: ['08:00', '20:00'], frequency: 'Twice daily' },
 };
 
+const CACHE_KEY = 'pal_reminders_cache';
+
+function readCache(): ReminderMap | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function writeCache(map: ReminderMap) {
+  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(map)); } catch {}
+}
+
 const DOSE_LABELS = ['Morning', 'Midday', 'Evening', 'Night'];
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
@@ -49,11 +62,12 @@ function fmt12(hhmm: string) {
 
 export default function Settings() {
   const { user }                         = useAuth();
-  const [reminders, setReminders]       = useState<ReminderMap>(DEFAULTS);
+  const [reminders, setReminders]       = useState<ReminderMap>(() => readCache() ?? DEFAULTS);
   const [openIndex, setOpenIndex]       = useState<number | null>(null);
   const [editIndex, setEditIndex]         = useState<number | null>(null);
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [notifBlocked, setNotifBlocked]   = useState(false);
+  const [profile, setProfile]             = useState<HealthSettings>({ age: '', gender: '', weight: '', weightUnit: 'lbs' });
 
   useEffect(() => {
     requestNotificationPermission().then(p => setNotifBlocked(p === 'denied'));
@@ -62,7 +76,16 @@ export default function Settings() {
   useEffect(() => {
     if (!user) return;
     subscribeToPush(user.uid).catch(() => {});
+    loadHealthSettings(user.uid).then(p => { if (p) setProfile(p); }).catch(() => {});
   }, [user]);
+
+  function updateProfile(patch: Partial<HealthSettings>) {
+    setProfile(prev => {
+      const next = { ...prev, ...patch };
+      if (user) saveHealthSettings(user.uid, next).catch(() => {});
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -70,6 +93,7 @@ export default function Settings() {
       if (data) {
         const loaded = data as ReminderMap;
         setReminders(loaded);
+        writeCache(loaded);
         scheduleReminders(withNames(loaded)).catch(() => {});
       }
     }).catch(() => {});
@@ -89,6 +113,7 @@ export default function Settings() {
     setReminders(prev => {
       const next = { ...prev, [genericName]: { ...prev[genericName], ...patch } };
       if (user) saveAllReminders(user.uid, next).catch(() => {});
+      writeCache(next);
       scheduleReminders(withNames(next)).catch(() => {});
       return next;
     });
@@ -121,6 +146,71 @@ export default function Settings() {
   return (
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
       <div className="w-full max-w-[520px] mx-auto">
+
+        {/* Health profile */}
+        <div className="mb-6 rounded-2xl overflow-hidden" style={{ border: '0.5px solid #D6E4F7', backgroundColor: '#fff' }}>
+          <div className="px-4 py-3" style={{ backgroundColor: '#0C447C' }}>
+            <p className="text-white font-bold text-[16px]">Health Profile</p>
+            <p className="text-[12px]" style={{ color: 'rgba(255,255,255,0.65)' }}>Helps Pal give better answers</p>
+          </div>
+          <div className="flex flex-col divide-y" style={{ borderColor: '#D6E4F7' }}>
+
+            {/* Age */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>Age</p>
+              <input
+                type="number"
+                min="1" max="120"
+                placeholder="e.g. 72"
+                value={profile.age}
+                onChange={e => updateProfile({ age: e.target.value })}
+                className="text-right text-[15px] font-bold w-20 outline-none"
+                style={{ color: '#185FA5', fontFamily: 'inherit', border: 'none', background: 'transparent' }}
+              />
+            </div>
+
+            {/* Gender */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>Gender</p>
+              <select
+                value={profile.gender}
+                onChange={e => updateProfile({ gender: e.target.value })}
+                className="text-right text-[14px] font-semibold outline-none"
+                style={{ color: '#185FA5', fontFamily: 'inherit', border: 'none', background: 'transparent' }}
+              >
+                <option value="">Select</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Non-binary</option>
+                <option>Prefer not to say</option>
+              </select>
+            </div>
+
+            {/* Weight */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>Weight</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 145"
+                  value={profile.weight}
+                  onChange={e => updateProfile({ weight: e.target.value })}
+                  className="text-right text-[15px] font-bold w-20 outline-none"
+                  style={{ color: '#185FA5', fontFamily: 'inherit', border: 'none', background: 'transparent' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => updateProfile({ weightUnit: profile.weightUnit === 'lbs' ? 'kg' : 'lbs' })}
+                  className="text-[12px] font-bold px-2 py-1 rounded-full"
+                  style={{ backgroundColor: '#EFF6FF', color: '#185FA5' }}
+                >
+                  {profile.weightUnit}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Header */}
         <header className="mb-6">

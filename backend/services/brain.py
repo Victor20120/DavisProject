@@ -1,82 +1,70 @@
-# This is the single function everything calls: respond(user_id, message)
-# The terminal script calls it. The /chat endpoint calls it. Voice will call it.
-# The signature never changes — only the inside grows as we add more features.
-#
-# What happens inside respond() on every call:
-#   1. Load facts       → stable things we know about the user (name, family, etc.)
-#   2. Load turns       → the recent conversation history
-#   3. Build prompt     → combine personality + facts into the system prompt
-#   4. Call Claude      → send the message + history + prompt, get a reply
-#   5. Save turns       → store the updated conversation back to Firestore
-#   6. Extract facts    → check if the user revealed anything new worth saving
-#   7. Return reply     → just the text, the caller decides what to do with it
-
-from dotenv import load_dotenv
-from anthropic import Anthropic
+import asyncio
+from anthropic import AsyncAnthropic
 from services.memory.working_repo import load_turns, save_turns
 from services.memory.facts_repo import get_facts, extract_and_update_facts
+from services.memory.profile_repo import build_user_context
 
-load_dotenv()
+_client = AsyncAnthropic()
 
-_client = Anthropic()
+_BASE_PROMPT = (
+    "You are a warm, patient AI assistant focused only on medication-related conversations. "
+    "Your only allowed topics are pills, prescription drugs, over-the-counter medications, supplements, "
+    "and their side effects, interactions, and general effects on the body. "
+    "You must NOT answer user questions directly. Instead, respond by asking clarifying questions "
+    "to better understand what medication or symptom the user is referring to. "
+    "You must never provide medical diagnoses, treatment instructions, dosage advice, or emergency guidance. "
+    "If the user asks about anything outside of pills or medication side effects, gently redirect them "
+    "back to medication-related questions only. "
+    "You must NOT respond to topics involving physical injuries, accidents, trauma, or general health issues "
+    "unrelated to medications. "
+    "Speak in plain sentences only — no markdown, bullet points, or headers. "
+    "Keep responses short, 1 to 3 sentences, because they will be read aloud. "
+    "Always keep the conversation focused on understanding: what medication the user is asking about, "
+    "what symptoms or side effects they are experiencing, how long they have been taking it, "
+    "and any other medications they might be using. "
+    "Your goal is to keep asking thoughtful follow-up questions so the user provides more detail "
+    "about pills and side effects, without ever giving direct medical instructions or conclusions."
+)
 
 
-def _build_system_prompt(facts: list[str]) -> str:
-    base = (
-        "You are a warm, patient AI friend. "
-        "Speak casually and in simple, plain language. "
-        "Never use markdown, bullet points, or headers — plain sentences only. "
-        "Be genuinely interested in the person you're talking to."
+def _build_system_prompt(facts: list[str], user_context: str) -> str:
+    prompt = _BASE_PROMPT
+
+    if user_context:
+        prompt += f"\n\nHere is what you know about this user's health:\n{user_context}"
+
+    if facts:
+        facts_block = "\n".join(f"- {f}" for f in facts)
+        prompt += (
+            f"\n\nAdditional things you know about this user — "
+            f"use naturally, don't recite back:\n{facts_block}"
+        )
+
+    return prompt
+
+
+async def respond(user_id: str, message: str) -> str:
+    # Fetch everything in parallel
+    facts, turns, user_context = await asyncio.gather(
+        asyncio.to_thread(get_facts,           user_id),
+        asyncio.to_thread(load_turns,          user_id),
+        asyncio.to_thread(build_user_context,  user_id),
     )
 
-    if not facts:
-        return base
-
-    # If we have facts, append them so the AI knows who it's talking to.
-    # "use naturally" means don't recite them like a list — just know them.
-    facts_block = "\n".join(f"- {f}" for f in facts)
-    return (
-        f"{base}\n\n"
-        f"Here is what you already know about this user — "
-        f"use this naturally in conversation, don't recite it back robotically:\n"
-        f"{facts_block}"
-    )
-
-
-def respond(user_id: str, message: str) -> str:
-    """Process one message and return the AI's reply.
-
-    This is the only function routes, voice, and scripts need to call.
-    Everything else is an implementation detail inside here.
-    """
-
-    # Step 1 — load what we know about this user
-    facts = get_facts(user_id)
-
-    # Step 2 — load the recent conversation so Claude has context
-    turns = load_turns(user_id)
-
-    system_prompt = _build_system_prompt(facts)
-
-    # Step 4 — add the new message and call Claude
     turns.append({"role": "user", "content": message})
 
-    reply = _client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=1024,
-        system=system_prompt,
+    reply = await _client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=256,
+        system=_build_system_prompt(facts, user_context),
         messages=turns,
     )
-
     ai_text = reply.content[0].text
 
-    #5 — save the updated conversation (both the user turn and AI reply)
     turns.append({"role": "assistant", "content": ai_text})
-    save_turns(user_id, turns)
 
-    #6 — check if the user revealed any new facts worth saving.
-    # This makes a small extra Claude call. 
-    extract_and_update_facts(user_id, message, ai_text)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, save_turns, user_id, turns)
+    loop.run_in_executor(None, extract_and_update_facts, user_id, message, ai_text)
 
-    #return just the text
     return ai_text

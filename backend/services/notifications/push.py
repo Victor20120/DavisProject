@@ -16,5 +16,10 @@ def send_push(subscription: dict, title: str, body: str) -> None:
             vapid_private_key=VAPID_PRIVATE_KEY,
             vapid_claims={"sub": VAPID_EMAIL},
         )
+        print(f"[push] sent: {title}")
     except WebPushException as e:
-        print(f"[push] failed: {e}")
+        status = e.response.status_code if e.response else "no response"
+        body_text = e.response.text[:300] if e.response else str(e)
+        print(f"[push] WebPushException status={status}: {body_text}")
+    except Exception as e:
+        print(f"[push] unexpected error: {e}")

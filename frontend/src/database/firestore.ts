@@ -25,6 +25,8 @@ export const db = getFirestore(app);
 // ─── User profile ─────────────────────────────────────────────────────────────
 
 export async function saveUserProfile(uid: string, data: { displayName: string; email: string }) {
+  // Create the top-level users/{uid} document so the backend can list users
+  await setDoc(doc(db, 'users', uid), { createdAt: serverTimestamp() }, { merge: true });
   await setDoc(doc(db, 'users', uid, 'profile', 'data'), {
     ...data,
     createdAt: serverTimestamp(),
@@ -222,4 +224,22 @@ export async function loadAllReminders(uid: string): Promise<object | null> {
   const snap = await getDoc(doc(db, 'users', uid, 'settings', 'reminders'));
   if (!snap.exists()) return null;
   try { return JSON.parse((snap.data() as { data: string }).data); } catch { return null; }
+}
+
+// ─── Simple health settings (age / gender / weight for AI context) ─────────────
+
+export interface HealthSettings {
+  age:        string;
+  gender:     string;
+  weight:     string;
+  weightUnit: 'lbs' | 'kg';
+}
+
+export async function saveHealthSettings(uid: string, s: HealthSettings) {
+  await setDoc(doc(db, 'users', uid, 'profile', 'health'), s);
+}
+
+export async function loadHealthSettings(uid: string): Promise<HealthSettings | null> {
+  const snap = await getDoc(doc(db, 'users', uid, 'profile', 'health'));
+  return snap.exists() ? (snap.data() as HealthSettings) : null;
 }

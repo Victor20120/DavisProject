@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+
+const BACKEND = 'http://localhost:8000';
 import { useNavigate } from 'react-router-dom';
 import ScanButton from '../components/ScanButton';
 import ScanningOverlay from '../components/ScanningOverlay';
@@ -145,6 +147,8 @@ export default function Home() {
               <p className="text-[18px] font-semibold mt-1 opacity-80">No reminders set</p>
             )}
           </div>
+
+          <VoiceChat userId={user?.uid ?? ''} />
         </aside>
       </div>
     </div>
@@ -173,6 +177,123 @@ function RecentMedCard({ med }: { med: MedData }) {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── Voice chat ───────────────────────────────────────────────────────────────
+
+type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking';
+
+function VoiceChat({ userId }: { userId: string }) {
+  const [state, setState]           = useState<VoiceState>('idle');
+  const [transcript, setTranscript] = useState('');
+  const [reply, setReply]           = useState('');
+  const [error, setError]           = useState('');
+  const recorder                    = useRef<MediaRecorder | null>(null);
+  const chunks                      = useRef<Blob[]>([]);
+
+  async function startListening() {
+    setError(''); setTranscript(''); setReply('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks.current = [];
+      const mr = new MediaRecorder(stream);
+      mr.ondataavailable = e => { if (e.data.size > 0) chunks.current.push(e.data); };
+      mr.start();
+      recorder.current = mr;
+      setState('listening');
+    } catch {
+      setError('Microphone access denied.');
+    }
+  }
+
+  async function stopAndSend() {
+    if (!recorder.current || state !== 'listening') return;
+    setState('transcribing');
+
+    await new Promise<void>(res => {
+      recorder.current!.onstop = () => res();
+      recorder.current!.stop();
+      recorder.current!.stream.getTracks().forEach(t => t.stop());
+    });
+
+    try {
+      // Step 1 — STT + Claude
+      const blob = new Blob(chunks.current, { type: 'audio/webm' });
+      const form = new FormData();
+      form.append('audio',   blob, 'recording.webm');
+      form.append('user_id', userId);
+
+      const listenRes = await fetch(`${BACKEND}/voice/listen`, { method: 'POST', body: form });
+      if (!listenRes.ok) throw new Error(await listenRes.text());
+
+      const { transcript: heard, reply: replyText } = await listenRes.json() as { transcript: string; reply: string };
+      setTranscript(heard);
+      setReply(replyText);
+      setState('speaking');
+
+      // Step 2 — TTS
+      const speakRes = await fetch(`${BACKEND}/voice/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: replyText }),
+      });
+      if (!speakRes.ok) throw new Error('TTS failed');
+
+      const url   = URL.createObjectURL(await speakRes.blob());
+      const audio = new Audio(url);
+      audio.onended = () => { setState('idle'); URL.revokeObjectURL(url); };
+      audio.play();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setState('idle');
+    }
+  }
+
+  const labels: Record<VoiceState, string> = {
+    idle: 'Hold to talk', listening: 'Listening…', transcribing: 'Thinking…', speaking: 'Speaking…',
+  };
+  const colors: Record<VoiceState, string> = {
+    idle: '#185FA5', listening: '#DC2626', transcribing: '#D97706', speaking: '#16A34A',
+  };
+
+  return (
+    <div className="rounded-[20px] p-5 flex flex-col items-center gap-4"
+      style={{ backgroundColor: '#fff', border: '0.5px solid #D6E4F7' }}>
+      <p className="text-[13px] font-semibold" style={{ color: '#378ADD' }}>Ask Pal anything about your meds</p>
+
+      <button
+        type="button"
+        onPointerDown={startListening}
+        onPointerUp={stopAndSend}
+        onPointerLeave={() => { if (state === 'listening') stopAndSend(); }}
+        disabled={state === 'transcribing' || state === 'speaking'}
+        className="w-20 h-20 rounded-full flex items-center justify-center disabled:opacity-60"
+        style={{
+          backgroundColor: colors[state],
+          boxShadow: state === 'listening' ? `0 0 0 14px ${colors.listening}25` : '0 4px 20px rgba(12,68,124,0.20)',
+          transition: 'background-color 0.2s, box-shadow 0.2s',
+        }}
+      >
+        {state === 'transcribing' ? (
+          <svg className="animate-spin" width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <circle cx="14" cy="14" r="11" stroke="white" strokeWidth="2.5" strokeOpacity="0.3" />
+            <path d="M14 3C7.9 3 3 7.9 3 14" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <rect x="9" y="2" width="10" height="16" rx="5" stroke="white" strokeWidth="2" fill="none" />
+            <path d="M4 14C4 20.075 8.477 25 14 25C19.523 25 24 20.075 24 14" stroke="white" strokeWidth="2" strokeLinecap="round" />
+            <line x1="14" y1="25" x2="14" y2="28" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        )}
+      </button>
+
+      <p className="text-[13px] font-medium" style={{ color: colors[state] }}>{labels[state]}</p>
+      {transcript && <p className="text-[12px] w-full px-1" style={{ color: '#94A3B8' }}>You: {transcript}</p>}
+      {reply      && <p className="text-[14px] leading-relaxed w-full px-1 font-medium" style={{ color: '#0C447C' }}>Pal: {reply}</p>}
+      {error      && <p className="text-[12px] text-center" style={{ color: '#DC2626' }}>{error}</p>}
     </div>
   );
 }

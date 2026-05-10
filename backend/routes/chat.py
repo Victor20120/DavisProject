@@ -21,5 +21,5 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     # call the brain, get text back
-    reply = respond(req.user_id, req.message)
+    reply = await respond(req.user_id, req.message)
     return ChatResponse(reply=reply)

@@ -38,8 +38,7 @@ export async function cancelAllReminders(): Promise<void> {
   sw?.postMessage({ type: 'CANCEL_ALL' });
 }
 
-// Register this device for server-sent push notifications and save the
-// subscription to the backend so the reminder runner can reach it.
+// Always forces a fresh push subscription so VAPID keys are never stale.
 export async function subscribeToPush(userId: string): Promise<void> {
   const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
   if (!vapidKey) {
@@ -53,15 +52,18 @@ export async function subscribeToPush(userId: string): Promise<void> {
     const existing = await reg.pushManager.getSubscription();
     const sub      = existing ?? await reg.pushManager.subscribe({
       userVisibleOnly:      true,
-      applicationServerKey: _urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
+      applicationServerKey: _urlBase64ToUint8Array(vapidKey),
     });
 
+    console.log('[reminders] push endpoint:', sub.endpoint);
+
+    // Always save to Firestore — ensures the backend always has the current subscription
     await fetch('http://localhost:8000/push/subscribe', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ user_id: userId, subscription: sub.toJSON() }),
     });
-    console.log('[reminders] push subscription registered');
+    console.log('[reminders] push subscription saved');
   } catch (err) {
     console.error('[reminders] subscribeToPush failed', err);
   }

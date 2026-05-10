@@ -16,9 +16,14 @@ self.addEventListener('message', e => {
 
 // Server-sent push (works when browser is closed)
 self.addEventListener('push', e => {
-  const data  = e.data?.json() ?? {};
-  const title = data.title ?? 'Pal Reminder';
-  const body  = data.body  ?? 'Time to take your medication.';
+  let title = 'Pal Reminder';
+  let body  = 'Time to take your medication.';
+  try {
+    const data = e.data?.json() ?? {};
+    if (data.title) title = data.title;
+    if (data.body)  body  = data.body;
+  } catch (_) {}
+
   e.waitUntil(
     self.registration.showNotification(title, {
       body,

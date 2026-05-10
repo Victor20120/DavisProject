@@ -23,10 +23,24 @@ class SubscribeRequest(BaseModel):
 
 @router.post("/push/subscribe")
 async def subscribe(req: SubscribeRequest):
-    db.collection("users").document(req.user_id) \
-      .collection("push_subscriptions").document("main") \
-      .set(req.subscription.model_dump())
+    user_ref = db.collection("users").document(req.user_id)
+    # Ensure the top-level user doc exists so the reminder runner can list users
+    user_ref.set({"exists": True}, merge=True)
+    user_ref.collection("push_subscriptions").document("main").set(req.subscription.model_dump())
     return {"ok": True}
+
+
+@router.get("/debug")
+async def debug():
+    try:
+        users = [d.id for d in db.collection("users").stream()]
+        return {
+            "project": db.project,
+            "users_found": len(users),
+            "user_ids": users,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @router.get("/push/test/{user_id}")
