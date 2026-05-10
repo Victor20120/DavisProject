@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PillCard from '../components/PillCard';
 import type { MedData } from '../types';
-import { loadNotes, saveNotes } from '../utils/storage';
+import { useAuth } from '../contexts/AuthContext';
+import { getMed, updateMedNotes } from '../database/firestore';
 
 function getInitialMed(): MedData {
   try {
@@ -29,7 +30,8 @@ const MOCK_MED: MedData = {
 };
 
 export default function PillCardPage() {
-  const navigate = useNavigate();
+  const navigate    = useNavigate();
+  const { user }    = useAuth();
   const [med]         = useState<MedData>(getInitialMed);
   const [showBack,    setShowBack]    = useState(false);
   const [isSquishing, setIsSquishing] = useState(false);
@@ -37,12 +39,15 @@ export default function PillCardPage() {
   const [notes,       setNotes]       = useState('');
 
   useEffect(() => {
-    setNotes(loadNotes(med.generic_name));
-  }, [med.generic_name]);
+    if (!user) return;
+    getMed(user.uid, med.generic_name)
+      .then(data => { if (data?.notes) setNotes(data.notes); })
+      .catch(() => {});
+  }, [user, med.generic_name]);
 
-  function handleNotesChange(text: string) {
+  async function handleNotesChange(text: string) {
     setNotes(text);
-    saveNotes(med.generic_name, text);
+    if (user) await updateMedNotes(user.uid, med.generic_name, text);
   }
 
   function handleFlip() {

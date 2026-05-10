@@ -1,30 +1,49 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ScanButton from '../components/ScanButton';
 import { scanPillBottle } from '../services/api';
 import type { MedData } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { onMedsChanged, saveMed, onFamilyChanged, type FamilyMember } from '../database/firestore';
 
-const RECENT_MEDS: Pick<MedData, 'common_name' | 'generic_name' | 'dosage' | 'how_to_take' | 'conflicts'>[] = [
-  {
-    common_name: 'Blood Pressure Pill',
-    generic_name: 'Lisinopril',
-    dosage: '10mg',
-    how_to_take: 'Take one pill every morning with water. Lowers blood pressure.',
-    conflicts: ['Avoid potassium supplements'],
-  },
-  {
-    common_name: 'Diabetes Pill',
-    generic_name: 'Metformin',
-    dosage: '500mg',
-    how_to_take: 'Take with meals. Controls blood sugar levels.',
-    conflicts: [],
-  },
-];
+function fmt12(hhmm: string) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
 
 export default function Home() {
-  const navigate = useNavigate();
-  const [scanning, setScanning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const navigate    = useNavigate();
+  const { user }    = useAuth();
+  const [scanning, setScanning]     = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [recentMeds, setRecentMeds] = useState<(MedData & { reminderTime: string })[]>([]);
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubMeds   = onMedsChanged(user.uid, meds => setRecentMeds(meds.slice(0, 4)));
+    const unsubFamily = onFamilyChanged(user.uid, setFamilyMembers);
+    return () => { unsubMeds(); unsubFamily(); };
+  }, [user]);
+
+  // Find the next upcoming reminder from user's meds
+  const nextReminder = (() => {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const candidates = recentMeds
+      .filter(m => m.reminderTime)
+      .map(m => {
+        const [h, min] = m.reminderTime.split(':').map(Number);
+        return { med: m, minutes: h * 60 + min };
+      })
+      .sort((a, b) => {
+        const aNext = a.minutes >= nowMinutes ? a.minutes : a.minutes + 1440;
+        const bNext = b.minutes >= nowMinutes ? b.minutes : b.minutes + 1440;
+        return aNext - bNext;
+      });
+    return candidates[0] ?? null;
+  })();
 
   async function handleImageCapture(base64: string, mediaType: string) {
     setScanning(true);
@@ -32,6 +51,7 @@ export default function Home() {
     try {
       const med = await scanPillBottle(base64, mediaType);
       sessionStorage.setItem('lastScan', JSON.stringify(med));
+      if (user) await saveMed(user.uid, med);
       navigate('/pill-card');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Scan failed. Please try again.';
@@ -72,7 +92,7 @@ export default function Home() {
               Recently scanned
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {RECENT_MEDS.map(med => (
+              {recentMeds.map(med => (
                 <RecentMedCard key={med.generic_name} med={med} />
               ))}
             </div>
@@ -84,34 +104,39 @@ export default function Home() {
 
           {/* Family loop widget */}
           <div className="bg-white rounded-[20px] p-5" style={{ border: '0.5px solid #D6E4F7' }}>
-            <h3 className="text-[15px] font-bold mb-4" style={{ color: '#0C447C' }}>
-              Family loop
-            </h3>
-            <div className="flex flex-col gap-3">
-              {[
-                { name: 'Sarah', status: 'Watching' },
-                { name: 'James', status: 'Watching' },
-              ].map(m => (
-                <div key={m.name} className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[14px] text-white shrink-0"
-                    style={{ backgroundColor: '#185FA5' }}>
-                    {m.name[0]}
+            <h3 className="text-[15px] font-bold mb-4" style={{ color: '#0C447C' }}>Family loop</h3>
+            {familyMembers.length === 0 ? (
+              <p className="text-[13px]" style={{ color: '#9CA3AF' }}>No family members yet</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {familyMembers.map((m, i) => (
+                  <div key={m.id} className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-[14px] text-white shrink-0"
+                      style={{ backgroundColor: i % 2 === 0 ? '#185FA5' : '#0C447C' }}>
+                      {m.name[0]}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>{m.name}</p>
+                      <p className="text-[12px]" style={{ color: '#378ADD' }}>{m.relation}</p>
+                    </div>
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
                   </div>
-                  <div className="flex-1">
-                    <p className="text-[14px] font-semibold" style={{ color: '#0C447C' }}>{m.name}</p>
-                    <p className="text-[12px]" style={{ color: '#378ADD' }}>{m.status}</p>
-                  </div>
-                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Next reminder widget */}
           <div className="rounded-[20px] p-5 text-white" style={{ backgroundColor: '#185FA5' }}>
             <p className="text-[13px] font-semibold opacity-80 mb-1">Next reminder</p>
-            <p className="text-[14px] opacity-70">Lisinopril 10mg</p>
-            <p className="text-[32px] font-bold mt-1 leading-none">8:00 AM</p>
+            {nextReminder ? (
+              <>
+                <p className="text-[14px] opacity-70">{nextReminder.med.generic_name} {nextReminder.med.dosage}</p>
+                <p className="text-[32px] font-bold mt-1 leading-none">{fmt12(nextReminder.med.reminderTime)}</p>
+              </>
+            ) : (
+              <p className="text-[18px] font-semibold mt-1 opacity-80">No reminders set</p>
+            )}
           </div>
         </aside>
       </div>
@@ -119,9 +144,7 @@ export default function Home() {
   );
 }
 
-type RecentMed = typeof RECENT_MEDS[number];
-
-function RecentMedCard({ med }: { med: RecentMed }) {
+function RecentMedCard({ med }: { med: MedData }) {
   const safe = med.conflicts.length === 0;
   return (
     <div className="bg-white rounded-[16px] p-4 flex flex-col gap-2" style={{ border: '0.5px solid #D6E4F7' }}>
@@ -136,10 +159,10 @@ function RecentMedCard({ med }: { med: RecentMed }) {
           style={{ backgroundColor: safe ? '#F0FDF4' : '#FEF2F2', color: safe ? '#16A34A' : '#DC2626' }}>
           {safe ? '✓ Safe' : '⚠ Conflict'}
         </span>
-        {med.conflicts.map((c, i) => (
+        {med.conflicts.map((conflict, i) => (
           <span key={i} className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
             style={{ backgroundColor: '#FFFBEB', color: '#92400E' }}>
-            ⚠ {c}
+            ⚠ {conflict}
           </span>
         ))}
       </div>

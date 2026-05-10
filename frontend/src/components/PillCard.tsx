@@ -1,4 +1,7 @@
+import { useNavigate } from 'react-router-dom';
 import type { MedData } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { saveMed } from '../database/firestore';
 
 interface PillCardProps {
   data: MedData;
@@ -6,7 +9,14 @@ interface PillCardProps {
 }
 
 export default function PillCard({ data, onOkay }: PillCardProps) {
+  const navigate   = useNavigate();
+  const { user }   = useAuth();
   const safe = data.conflicts.length === 0;
+
+  async function handleAddToMedications() {
+    if (user) await saveMed(user.uid, data).catch(() => {});
+    onOkay?.();
+  }
 
   return (
     <div className="w-full overflow-hidden" style={{ borderRadius: '20px' }}>
@@ -82,15 +92,16 @@ export default function PillCard({ data, onOkay }: PillCardProps) {
         <div className="flex gap-3 px-5 pb-5">
           <button
             type="button"
-            onClick={onOkay}
-            className="flex-1 font-semibold text-[16px] text-white"
+            onClick={handleAddToMedications}
+            className="flex-1 font-semibold text-[16px] text-white transition-all active:scale-[0.98]"
             style={{ minHeight: '52px', borderRadius: '100px', backgroundColor: '#185FA5' }}
           >
             Add to Medications
           </button>
           <button
             type="button"
-            className="flex-1 font-semibold text-[16px]"
+            onClick={() => navigate('/medications')}
+            className="flex-1 font-semibold text-[16px] transition-all active:scale-[0.98]"
             style={{ minHeight: '52px', borderRadius: '100px', border: '1.5px solid #185FA5', color: '#185FA5', backgroundColor: 'white' }}
           >
             Edit

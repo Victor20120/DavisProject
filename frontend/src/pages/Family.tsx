@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { onFamilyChanged, removeFamilyMember, seedFamilyData, type FamilyMember } from '../database/firestore';
+
+const AVATAR_COLORS = ['#378ADD', '#185FA5', '#0C447C', '#2563EB'];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -10,23 +14,43 @@ interface Member {
   avatarColor: string;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const INITIAL_MEMBERS: Member[] = [
-  { id: '1', name: 'Dorothy', relation: 'You',      isYou: true, avatarColor: '#378ADD' },
-  { id: '2', name: 'Sarah',   relation: 'Daughter',              avatarColor: '#185FA5' },
-  { id: '3', name: 'James',   relation: 'Son',                   avatarColor: '#0C447C' },
-];
-
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Family() {
-  const [members, setMembers]       = useState<Member[]>(INITIAL_MEMBERS);
-  const [showSearch, setShowSearch] = useState(false);
-  const [query, setQuery]           = useState('');
+  const { user }                        = useAuth();
+  const [members, setMembers]           = useState<Member[]>([]);
+  const [showSearch, setShowSearch]     = useState(false);
+  const [query, setQuery]               = useState('');
 
-  function removeMember(id: string) {
-    setMembers(prev => prev.filter(m => m.id !== id));
+  useEffect(() => {
+    if (!user) return;
+    let seeded = false;
+    const unsub = onFamilyChanged(user.uid, (firestoreMembers: FamilyMember[]) => {
+      if (firestoreMembers.length === 0 && !seeded) {
+        seeded = true;
+        seedFamilyData(user.uid);
+      } else if (firestoreMembers.length > 0) {
+        const youMember: Member = {
+          id: user.uid,
+          name: user.displayName ?? 'You',
+          relation: 'You',
+          isYou: true,
+          avatarColor: '#378ADD',
+        };
+        const others: Member[] = firestoreMembers.map((m, i) => ({
+          id: m.id,
+          name: m.name,
+          relation: m.relation,
+          avatarColor: AVATAR_COLORS[(i + 1) % AVATAR_COLORS.length],
+        }));
+        setMembers([youMember, ...others]);
+      }
+    });
+    return unsub;
+  }, [user]);
+
+  async function removeMember(id: string) {
+    if (user) await removeFamilyMember(user.uid, id).catch(() => {});
   }
 
   function toggleSearch() {

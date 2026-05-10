@@ -1,4 +1,5 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { signOut } from '../database/auth';
 
 const NAV_ITEMS = [
   { label: 'Home',         to: '/',            icon: HomeIcon },
@@ -9,7 +10,13 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const { pathname } = useLocation();
+  const navigate     = useNavigate();
   const isActive = (to: string) => (to === '/' ? pathname === '/' : pathname.startsWith(to));
+
+  async function handleSignOut() {
+    await signOut();
+    navigate('/login');
+  }
 
   return (
     <aside
@@ -44,6 +51,21 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Sign out — pinned to bottom */}
+      <div className="mt-auto px-3 pb-6">
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-[12px] text-[15px] font-medium transition-colors"
+          style={{ color: '#DC2626' }}
+          onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#FEF2F2')}
+          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+        >
+          <SignOutIcon />
+          Sign out
+        </button>
+      </div>
     </aside>
   );
 }
@@ -90,6 +112,16 @@ function FamilyIcon({ active }: { active: boolean }) {
       <path d="M2 17C2 14.5 4.5 13 7.5 13C10.5 13 13 14.5 13 17" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="14.5" cy="7.5" r="2" stroke={c} strokeWidth="1.5" />
       <path d="M12 17C12 15.5 13 14 14.5 14C16 14 17.5 15.5 17.5 17" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SignOutIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M7 3H4C3.45 3 3 3.45 3 4V16C3 16.55 3.45 17 4 17H7" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M13 14L17 10L13 6" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M17 10H7" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

@@ -2,55 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MedData, ConflictResult } from '../types';
 import ConflictAlert from '../components/ConflictAlert';
-import { loadNotes, saveNotes } from '../utils/storage';
 import { scanPillBottle } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import { onMedsChanged, updateMedNotes, seedDemoData, saveMed } from '../database/firestore';
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_MEDS: MedData[] = [
-  {
-    common_name: 'Blood Pressure Pill',
-    generic_name: 'Lisinopril',
-    dosage: '10mg',
-    form: 'Oral tablet',
-    drug_class: 'ACE Inhibitor',
-    active_ingredient: 'Lisinopril 10mg',
-    common_effects: 'Dizziness, dry cough',
-    manufacturer: 'Lupin Pharma',
-    how_to_take: 'Take once daily, with or without food. Best taken at the same time each day.',
-    frequency: 'Once daily',
-    take_with_food: false,
-    conflicts: ['May reduce effectiveness when taken with Ibuprofen'],
-  },
-  {
-    common_name: 'Pain Reliever',
-    generic_name: 'Ibuprofen',
-    dosage: '400mg',
-    form: 'Oral tablet',
-    drug_class: 'NSAID',
-    active_ingredient: 'Ibuprofen 400mg',
-    common_effects: 'Stomach upset, nausea',
-    manufacturer: 'Advil',
-    how_to_take: 'Take with food or milk to reduce stomach upset. Do not exceed 3 doses per day.',
-    frequency: 'Every 6 hrs as needed',
-    take_with_food: true,
-    conflicts: ['May reduce effectiveness of Lisinopril'],
-  },
-  {
-    common_name: 'Diabetes Pill',
-    generic_name: 'Metformin',
-    dosage: '500mg',
-    form: 'Oral tablet',
-    drug_class: 'Biguanide',
-    active_ingredient: 'Metformin HCl 500mg',
-    common_effects: 'Nausea, diarrhea',
-    manufacturer: 'Teva Pharmaceuticals',
-    how_to_take: 'Take with meals to reduce stomach upset. Swallow whole with a full glass of water.',
-    frequency: 'Twice daily',
-    take_with_food: true,
-    conflicts: [],
-  },
-];
+// ─── Mock conflicts (until conflict checker is wired to Claude) ───────────────
 
 const MOCK_CONFLICTS: ConflictResult['conflicts'] = [
   {
@@ -74,24 +30,42 @@ const EXPANDED_H = 360;
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+type FirestoreMed = MedData & { notes: string; reminderTime: string };
+
 export default function Medications() {
+  const { user }                          = useAuth();
+  const [meds, setMeds]                   = useState<FirestoreMed[]>([]);
+  const [medsLoading, setMedsLoading]     = useState(true);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [isFlipped, setIsFlipped]         = useState(false);
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [viewMode, setViewMode]           = useState<'stack' | 'list'>('stack');
-  const [notesMap, setNotesMap]           = useState<Record<string, string>>({});
   const [showAddMenu, setShowAddMenu]     = useState(false);
   const [scanning, setScanning]           = useState(false);
+  const [scanError, setScanError]         = useState<string | null>(null);
   const navigate   = useNavigate();
   const addMenuRef = useRef<HTMLDivElement>(null);
   const cameraRef  = useRef<HTMLInputElement>(null);
   const uploadRef  = useRef<HTMLInputElement>(null);
 
+  const notesMap = Object.fromEntries(meds.map(m => [m.generic_name, m.notes ?? '']));
+
+  // Firestore real-time listener — auto-seeds demo data for new users
   useEffect(() => {
-    const map: Record<string, string> = {};
-    MOCK_MEDS.forEach(m => { map[m.generic_name] = loadNotes(m.generic_name); });
-    setNotesMap(map);
-  }, []);
+    if (!user) return;
+    let seeded = false;
+    const unsub = onMedsChanged(user.uid, async (loaded) => {
+      if (loaded.length === 0 && !seeded) {
+        seeded = true;
+        await seedDemoData(user.uid);
+      } else if (loaded.length > 0) {
+        // Sort consistently: alphabetical by generic_name
+        setMeds([...loaded].sort((a, b) => a.generic_name.localeCompare(b.generic_name)));
+        setMedsLoading(false);
+      }
+    });
+    return unsub;
+  }, [user]);
 
   useEffect(() => {
     if (!showAddMenu) return;
@@ -107,24 +81,29 @@ export default function Medications() {
   async function handleImageCapture(file: File) {
     setShowAddMenu(false);
     setScanning(true);
+    setScanError(null);
     try {
       const base64 = await fileToBase64(file);
       const med = await scanPillBottle(base64, file.type || 'image/jpeg');
       sessionStorage.setItem('lastScan', JSON.stringify(med));
+      if (user) await saveMed(user.uid, med);
       navigate('/pill-card');
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Scan failed. Please try again.';
+      setScanError(msg);
       console.error('[Pill Pal] Scan error from Medications:', err);
     } finally {
       setScanning(false);
     }
   }
 
-  function handleNotesChange(genericName: string, text: string) {
-    setNotesMap(prev => ({ ...prev, [genericName]: text }));
-    saveNotes(genericName, text);
+  async function handleNotesChange(genericName: string, text: string) {
+    // Optimistic local update so typing feels instant
+    setMeds(prev => prev.map(m => m.generic_name === genericName ? { ...m, notes: text } : m));
+    if (user) await updateMedNotes(user.uid, genericName, text);
   }
 
-  const n = MOCK_MEDS.length;
+  const n = meds.length;
 
   const containerH =
     selectedIndex === null
@@ -142,7 +121,7 @@ export default function Medications() {
     if (index === selectedIndex) {
       return { top: 0, height: EXPANDED_H, zIndex: n + 1 };
     }
-    const others = MOCK_MEDS.map((_, i) => i).filter(i => i !== selectedIndex);
+    const others = meds.map((_, i) => i).filter(i => i !== selectedIndex);
     const pos = others.indexOf(index);
     return {
       top:    EXPANDED_H + GAP + pos * HEADER_H,
@@ -196,7 +175,7 @@ export default function Medications() {
             <div>
               <h1 className="text-[24px] font-bold" style={{ color: '#0C447C' }}>My Medications</h1>
               <p className="text-[14px] mt-0.5" style={{ color: '#378ADD' }}>
-                {MOCK_MEDS.length} medications scanned
+                {meds.length} medication{meds.length !== 1 ? 's' : ''} scanned
               </p>
             </div>
 
@@ -267,8 +246,28 @@ export default function Medications() {
           </div>
         </header>
 
+        {/* Scan error banner */}
+        {scanError && (
+          <div className="rounded-[14px] px-4 py-3 flex items-center gap-3 mb-2"
+            style={{ backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5' }}>
+            <span className="text-[16px]">⚠️</span>
+            <p className="text-[13px] font-medium flex-1" style={{ color: '#991B1B' }}>{scanError}</p>
+            <button type="button" onClick={() => setScanError(null)} style={{ color: '#991B1B' }}>✕</button>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {medsLoading && (
+          <div className="flex items-center justify-center py-16">
+            <svg className="animate-spin" width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="16" r="13" stroke="#D6E4F7" strokeWidth="3" />
+              <path d="M16 3C8.8 3 3 8.8 3 16" stroke="#185FA5" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          </div>
+        )}
+
         {/* Conflict banner */}
-        <ConflictAlert conflicts={MOCK_CONFLICTS} />
+        {!medsLoading && <ConflictAlert conflicts={MOCK_CONFLICTS} />}
 
         {/* Segmented control */}
         <div className="flex items-center gap-3 mb-7">
@@ -302,7 +301,7 @@ export default function Medications() {
                 transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
-              {MOCK_MEDS.map((med, i) => {
+              {meds.map((med, i) => {
                 const { top, height, zIndex } = getCardStyle(i);
                 const isSelected = selectedIndex === i;
                 const isPressed  = pressedIndex === i;
@@ -352,7 +351,11 @@ export default function Medications() {
                               color={color}
                               notes={notesMap[med.generic_name] ?? ''}
                               onClose={handleClose}
-                              onViewFull={e => { e.stopPropagation(); navigate('/pill-card'); }}
+                              onViewFull={e => {
+                                e.stopPropagation();
+                                sessionStorage.setItem('lastScan', JSON.stringify(med));
+                                navigate('/pill-card');
+                              }}
                             />
                           </div>
                           {/* Back */}
@@ -388,11 +391,14 @@ export default function Medications() {
         {/* ── List view ── */}
         {viewMode === 'list' && (
           <div className="flex flex-col gap-3">
-            {MOCK_MEDS.map((med, i) => (
+            {meds.map((med, i) => (
               <button
                 key={med.generic_name}
                 type="button"
-                onClick={() => navigate('/pill-card')}
+                onClick={() => {
+                  sessionStorage.setItem('lastScan', JSON.stringify(med));
+                  navigate('/pill-card');
+                }}
                 className="text-left w-full overflow-hidden active:scale-[0.97] transition-transform duration-100"
                 style={{ borderRadius: 22, boxShadow: '0 2px 14px rgba(12,68,124,0.10)' }}
               >

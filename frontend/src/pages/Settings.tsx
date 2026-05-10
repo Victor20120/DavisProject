@@ -1,4 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { signOut } from '../database/auth';
+import { useAuth } from '../contexts/AuthContext';
+import { saveAllReminders, loadAllReminders } from '../database/firestore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,19 +32,7 @@ const DEFAULTS: ReminderMap = {
 
 const DOSE_LABELS = ['Morning', 'Midday', 'Evening', 'Night'];
 
-// ─── Storage ──────────────────────────────────────────────────────────────────
-
-function load(): ReminderMap {
-  try {
-    const s = localStorage.getItem('pillpal_all_reminders');
-    if (s) return JSON.parse(s) as ReminderMap;
-  } catch {}
-  return DEFAULTS;
-}
-
-function persist(data: ReminderMap) {
-  localStorage.setItem('pillpal_all_reminders', JSON.stringify(data));
-}
+// ─── Storage ─────────────────────────────────────────────────────────────────
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -59,17 +51,23 @@ function fmt12(hhmm: string) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Settings() {
+  const { user }                         = useAuth();
   const [reminders, setReminders]       = useState<ReminderMap>(DEFAULTS);
   const [openIndex, setOpenIndex]       = useState<number | null>(null);
   const [editIndex, setEditIndex]       = useState<number | null>(null);
   const [pressedIndex, setPressedIndex] = useState<number | null>(null);
 
-  useEffect(() => { setReminders(load()); }, []);
+  useEffect(() => {
+    if (!user) return;
+    loadAllReminders(user.uid).then(data => {
+      if (data) setReminders(data as ReminderMap);
+    }).catch(() => {});
+  }, [user]);
 
   function update(genericName: string, patch: Partial<ReminderEntry>) {
     setReminders(prev => {
       const next = { ...prev, [genericName]: { ...prev[genericName], ...patch } };
-      persist(next);
+      if (user) saveAllReminders(user.uid, next).catch(() => {});
       return next;
     });
   }
@@ -360,8 +358,40 @@ export default function Settings() {
             Tap a card to set reminder times. Tap the pencil to edit the frequency or add dose times.
           </p>
         </div>
+
+        {/* Sign out — mobile only (sidebar has it on desktop) */}
+        <SignOutButton />
       </div>
     </div>
+  );
+}
+
+function SignOutButton() {
+  const navigate = useNavigate();
+  async function handleSignOut() {
+    await signOut();
+    navigate('/login');
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleSignOut}
+      className="lg:hidden w-full flex items-center justify-center gap-2 font-semibold text-[15px] transition-all active:scale-[0.98] mt-2"
+      style={{
+        minHeight: 52,
+        borderRadius: 100,
+        border: '1.5px solid #FECACA',
+        color: '#DC2626',
+        backgroundColor: '#FEF2F2',
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M6 2.5H3.5C3 2.5 2.5 3 2.5 3.5V14.5C2.5 15 3 15.5 3.5 15.5H6" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" />
+        <path d="M12 13L15.5 9L12 5" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M15.5 9H6" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+      Sign out
+    </button>
   );
 }
 
