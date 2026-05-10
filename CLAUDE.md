@@ -8,6 +8,8 @@ Pill Pal is being built for HackDavis 2026 under the **Health & Wellness** track
 
 **Core design principle:** Clean, minimal, blue and white. No clutter. Every screen has one primary action. Font sizes are large, buttons are big — this is built for elderly users. No personalized greeting on the home screen. No avatar. No voice.
 
+**No decorative emojis in UI components.** Never use emoji icons (🍷🚬🥗💊⚠️🌅🌙 etc.) as UI elements — they render inconsistently across devices and break the clean clinical aesthetic. Use SVG icons matching the #0C447C / #378ADD palette instead. The only acceptable emoji use is inside user-generated text content (e.g. a user typing in a notes field).
+
 ## Branding
 
 - **App name:** Pal

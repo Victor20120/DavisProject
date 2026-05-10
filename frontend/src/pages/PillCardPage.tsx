@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PillCard from '../components/PillCard';
 import type { MedData } from '../types';
+import type { AdviceItem } from '../services/claude';
+import { getPersonalizedAdvice } from '../services/claude';
 import { useAuth } from '../contexts/AuthContext';
-import { getMed, updateMedNotes } from '../database/firestore';
+import { getMed, updateMedNotes, getUserProfile, removeMed } from '../database/firestore';
 
 function getInitialMed(): MedData {
   try {
@@ -32,22 +34,58 @@ const MOCK_MED: MedData = {
 export default function PillCardPage() {
   const navigate    = useNavigate();
   const { user }    = useAuth();
-  const [med]         = useState<MedData>(getInitialMed);
-  const [showBack,    setShowBack]    = useState(false);
-  const [isSquishing, setIsSquishing] = useState(false);
-  const [isPressed,   setIsPressed]   = useState(false);
-  const [notes,       setNotes]       = useState('');
+  const [med]           = useState<MedData>(getInitialMed);
+  const [isSaved,     setIsSaved]     = useState(false);
+  const [showBack,      setShowBack]      = useState(false);
+  const [isSquishing,   setIsSquishing]   = useState(false);
+  const [isPressed,     setIsPressed]     = useState(false);
+  const [notes,         setNotes]         = useState('');
+  const [advice,        setAdvice]        = useState<AdviceItem[]>([]);
+  const [adviceLoading, setAdviceLoading] = useState(false);
+  const [removing,      setRemoving]      = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     getMed(user.uid, med.generic_name)
-      .then(data => { if (data?.notes) setNotes(data.notes); })
+      .then(data => {
+        if (data) {
+          setIsSaved(true);
+          if (data.notes) setNotes(data.notes);
+        }
+      })
       .catch(() => {});
+  }, [user, med.generic_name]);
+
+  useEffect(() => {
+    if (!user) return;
+    setAdviceLoading(true);
+    getUserProfile(user.uid)
+      .then(profile => {
+        if (!profile) { setAdviceLoading(false); return; }
+        return getPersonalizedAdvice(med, profile).then(items => {
+          setAdvice(items);
+          setAdviceLoading(false);
+        });
+      })
+      .catch(() => setAdviceLoading(false));
   }, [user, med.generic_name]);
 
   async function handleNotesChange(text: string) {
     setNotes(text);
     if (user) await updateMedNotes(user.uid, med.generic_name, text);
+  }
+
+  async function handleRemove() {
+    if (!user) return;
+    setRemoving(true);
+    try {
+      await removeMed(user.uid, med.generic_name);
+      sessionStorage.removeItem('lastScan');
+      navigate('/medications');
+    } catch {
+      setRemoving(false);
+    }
   }
 
   function handleFlip() {
@@ -111,9 +149,46 @@ export default function PillCardPage() {
         >
           {showBack
             ? <BackCard med={med} notes={notes} onNotesChange={handleNotesChange} />
-            : <PillCard data={med} onOkay={() => navigate('/')} />}
+            : <PillCard data={med} onOkay={() => navigate('/')} advice={advice} adviceLoading={adviceLoading} isAlreadySaved={isSaved} onSaved={() => setIsSaved(true)} />}
         </div>
       </div>
+
+      {/* Remove button — only shown when med is saved */}
+      {isSaved && (
+        <div className="flex justify-end mt-4 px-1">
+          {confirmRemove ? (
+            <div className="flex items-center gap-3">
+              <span className="text-[14px] font-medium" style={{ color: '#9CA3AF' }}>Remove this medication?</span>
+              <button
+                type="button"
+                onClick={() => setConfirmRemove(false)}
+                className="text-[14px] font-semibold px-4 py-2 rounded-full"
+                style={{ border: '1px solid #D6E4F7', color: '#9CA3AF' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={removing}
+                onClick={handleRemove}
+                className="text-[14px] font-semibold px-4 py-2 rounded-full text-white disabled:opacity-60"
+                style={{ backgroundColor: '#DC2626' }}
+              >
+                {removing ? 'Removing…' : 'Yes, remove'}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmRemove(true)}
+              className="flex items-center gap-2 text-[14px] font-semibold px-4 py-2 rounded-full"
+              style={{ color: '#DC2626', backgroundColor: '#FEF2F2', border: '1px solid #FECACA' }}
+            >
+              <TrashIcon /> Remove medication
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -168,40 +243,6 @@ function BackCard({
         <BackRow label="Frequency"  value={med.frequency} />
         <Divider />
         <BackRow label="Last taken" value="8:05 AM"   sub="This morning" />
-
-        <FullDivider />
-
-        {/* Tailored advice */}
-        <SectionHeader label="Tailored Advice" />
-        {[
-          { icon: '💊', label: 'Best time to take',    value: 'Morning with breakfast'        },
-          { icon: '🩺', label: 'Your prescriber says', value: 'Monitor blood pressure weekly' },
-          { icon: '⚠️', label: 'Watch out for',        value: 'Avoid NSAIDs like Ibuprofen'   },
-        ].map(row => (
-          <div key={row.label}>
-            <div className="flex items-center gap-4 px-5 py-4">
-              <span className="text-[20px] shrink-0">{row.icon}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: '#9CA3AF' }}>
-                  {row.label}
-                </p>
-                <p className="text-[15px] font-semibold mt-0.5" style={{ color: '#0C447C' }}>
-                  {row.value}
-                </p>
-              </div>
-            </div>
-            <Divider />
-          </div>
-        ))}
-
-        <div className="px-5 pt-1 pb-4">
-          <p
-            className="text-center text-[12px] font-medium px-4 py-3 rounded-[12px]"
-            style={{ backgroundColor: '#F5F8FF', color: '#378ADD' }}
-          >
-            Tailored advice placeholder — real tips load after scan
-          </p>
-        </div>
 
         <FullDivider />
 
@@ -264,6 +305,14 @@ function FullDivider() {
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
+
+function TrashIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M3 6H21M8 6V4H16V6M19 6L18 20H6L5 6" stroke="#DC2626" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function BackArrow() {
   return (

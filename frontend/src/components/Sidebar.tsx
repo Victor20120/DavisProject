@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { label: 'Medications',  to: '/medications', icon: PillIcon },
   { label: 'Family Loops', to: '/family',      icon: FamilyIcon },
   { label: 'Reminders',    to: '/settings',    icon: ReminderIcon },
+  { label: 'Profile',      to: '/profile',     icon: ProfileIcon },
 ];
 
 export default function Sidebar() {
@@ -112,6 +113,19 @@ function FamilyIcon({ active }: { active: boolean }) {
       <path d="M2 17C2 14.5 4.5 13 7.5 13C10.5 13 13 14.5 13 17" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="14.5" cy="7.5" r="2" stroke={c} strokeWidth="1.5" />
       <path d="M12 17C12 15.5 13 14 14.5 14C16 14 17.5 15.5 17.5 17" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ProfileIcon({ active }: { active: boolean }) {
+  const c = active ? '#185FA5' : '#0C447C';
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="7" r="3"
+        fill={active ? '#185FA5' : 'none'}
+        stroke={c} strokeWidth="1.5" />
+      <path d="M3 18C3 15 6.134 13 10 13C13.866 13 17 15 17 18"
+        stroke={c} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

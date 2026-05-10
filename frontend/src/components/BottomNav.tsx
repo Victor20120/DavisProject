@@ -54,6 +54,20 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    label: 'Profile',
+    to: '/profile',
+    icon: (active: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="8" r="4"
+          fill={active ? '#378ADD' : 'none'}
+          stroke={active ? '#378ADD' : 'white'}
+          strokeWidth="1.5" />
+        <path d="M4 20C4 16.686 7.582 14 12 14C16.418 14 20 16.686 20 20"
+          stroke={active ? '#378ADD' : 'white'} strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 export default function BottomNav() {

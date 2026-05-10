@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ScanButton from '../components/ScanButton';
+import ScanningOverlay from '../components/ScanningOverlay';
 import { scanPillBottle } from '../services/api';
 import type { MedData } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,8 +16,10 @@ function fmt12(hhmm: string) {
 export default function Home() {
   const navigate    = useNavigate();
   const { user }    = useAuth();
-  const [scanning, setScanning]     = useState(false);
-  const [error, setError]           = useState<string | null>(null);
+  const [scanning,    setScanning]    = useState(false);
+  const [scanSuccess, setScanSuccess] = useState(false);
+  const [cameraOpen,  setCameraOpen]  = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
   const [recentMeds, setRecentMeds] = useState<(MedData & { reminderTime: string })[]>([]);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
 
@@ -52,18 +55,22 @@ export default function Home() {
       const med = await scanPillBottle(base64, mediaType);
       sessionStorage.setItem('lastScan', JSON.stringify(med));
       if (user) await saveMed(user.uid, med);
-      navigate('/pill-card');
+      // Flash "Got it!" for 1.5s before navigating
+      setScanning(false);
+      setScanSuccess(true);
+      setTimeout(() => navigate('/pill-card'), 1500);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Scan failed. Please try again.';
       setError(msg);
-      console.error('[Pill Pal] Scan error:', err);
-    } finally {
       setScanning(false);
+      console.error('[Pill Pal] Scan error:', err);
     }
   }
 
   return (
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
+      {/* Overlay for file uploads only (camera has its own viewfinder UI) */}
+      {scanning && !cameraOpen && <ScanningOverlay />}
 
       {/* Logo — mobile + tablet only (sidebar has it on desktop) */}
       <div className="flex items-center gap-2 mb-7 lg:hidden">
@@ -76,7 +83,7 @@ export default function Home() {
 
         {/* ── Left / center column ── */}
         <div className="flex flex-col gap-5">
-          <ScanButton onImageCapture={handleImageCapture} isScanning={scanning} />
+          <ScanButton onImageCapture={handleImageCapture} isScanning={scanning} isSuccess={scanSuccess} onCameraToggle={setCameraOpen} />
 
           {error && (
             <div className="rounded-[14px] px-4 py-3 flex items-center gap-3"

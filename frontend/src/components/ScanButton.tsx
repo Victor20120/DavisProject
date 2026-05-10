@@ -1,103 +1,85 @@
-// ScanButton — live camera viewfinder with auto-capture
-//
-// How it works:
-//   1. User taps the button → camera opens as a full-screen overlay
-//   2. Every 2 seconds a frame is grabbed automatically from the video stream
-//   3. The frame is sent to the backend (via onImageCapture prop)
-//   4. While Claude is analyzing, the scan frame turns yellow
-//   5. When Claude returns a result, the parent navigates to /pill-card
-//   6. If Claude fails to read the label, we silently try again next frame
-//
-// The parent (Home.tsx) doesn't need to change — it still receives
-// (base64, mediaType) and handles the API call the same way.
-
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 
 interface ScanButtonProps {
-  onImageCapture: (base64: string, mediaType: string) => void;
-  isScanning?: boolean; // true while parent is waiting for Claude response
+  onImageCapture:  (base64: string, mediaType: string) => void;
+  isScanning?:     boolean;
+  isSuccess?:      boolean;
+  onCameraToggle?: (isOpen: boolean) => void; // notifies parent when viewfinder opens/closes
 }
 
-export default function ScanButton({ onImageCapture, isScanning = false }: ScanButtonProps) {
-  const [open, setOpen] = useState(false);          // is the viewfinder showing?
-  const videoRef  = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+const SCAN_INTERVAL_MS = 2000;
 
-  // Refs let the interval callback always read the latest values
-  // without needing to recreate the interval every render
-  const isScanningRef  = useRef(isScanning);
-  const isCapturingRef = useRef(false); // prevents sending two frames at once
+export default function ScanButton({ onImageCapture, isScanning = false, isSuccess = false, onCameraToggle }: ScanButtonProps) {
+  const [open, setOpen] = useState(false);
+  const videoRef   = useRef<HTMLVideoElement>(null);
+  const streamRef  = useRef<MediaStream | null>(null);
+  const lockedRef  = useRef(false);
+  const isScanRef  = useRef(isScanning);
 
-  // Keep isScanningRef in sync with the prop
   useEffect(() => {
-    isScanningRef.current = isScanning;
-    // When a scan finishes (success or error), unlock the next capture
-    if (!isScanning) isCapturingRef.current = false;
+    isScanRef.current = isScanning;
+    if (!isScanning) lockedRef.current = false;
   }, [isScanning]);
-
-  // ── Open camera ─────────────────────────────────────────────────────────────
 
   async function openCamera() {
     try {
-      // Request back-facing camera on mobile, any camera on desktop
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       });
       streamRef.current = stream;
       setOpen(true);
-      // Attach stream to the <video> element once it mounts
+      onCameraToggle?.(true);
       requestAnimationFrame(() => {
         if (videoRef.current) videoRef.current.srcObject = stream;
       });
     } catch {
-      // Camera permission denied — fall back to file picker
       document.getElementById('pill-file-input')?.click();
     }
   }
 
-  // ── Close camera ─────────────────────────────────────────────────────────────
-
   function closeCamera() {
-    // Stop all tracks so the browser releases the camera (green dot goes away)
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
-    isCapturingRef.current = false;
+    lockedRef.current = false;
+    onCameraToggle?.(false);
     setOpen(false);
   }
 
-  // Stop stream if the component unmounts while viewfinder is open
   useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()); }, []);
 
-  // ── Auto-capture interval ────────────────────────────────────────────────────
+  const triggerScan = useCallback(() => {
+    if (lockedRef.current || isScanRef.current) return;
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')!.drawImage(video, 0, 0);
+    const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+
+    lockedRef.current = true;
+    onImageCapture(base64, 'image/jpeg');
+  }, [onImageCapture]);
 
   useEffect(() => {
     if (!open) return;
-
-    const id = window.setInterval(() => {
-      // Skip if Claude is already working on a frame, or video isn't ready
-      if (isScanningRef.current || isCapturingRef.current) return;
-      const video = videoRef.current;
-      if (!video || video.readyState < 2) return;
-
-      // Grab the current frame as a JPEG base64 string
-      const canvas = document.createElement('canvas');
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d')!.drawImage(video, 0, 0);
-      const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-
-      isCapturingRef.current = true; // lock until this scan finishes
-      onImageCapture(base64, 'image/jpeg');
-    }, 2000);
-
+    const id = window.setInterval(triggerScan, SCAN_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [open]); // only restart when viewfinder opens/closes
+  }, [open, triggerScan]);
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Derived visuals ───────────────────────────────────────────────────────────
+
+  const borderColor = isSuccess  ? '#4ADE80' : '#FBBF24';
+  const glowColor   = isSuccess  ? 'rgba(74,222,128,0.25)' : 'rgba(251,191,36,0.18)';
+  const labelColor  = isSuccess  ? '#4ADE80' : '#FBBF24';
+
+  const statusText  = isSuccess ? 'Got it!' : 'Scanning…';
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* Hidden file input — fallback if camera permission is denied */}
       <input
         id="pill-file-input"
         type="file"
@@ -108,10 +90,11 @@ export default function ScanButton({ onImageCapture, isScanning = false }: ScanB
           if (!file) return;
           const base64 = await fileToBase64(file);
           onImageCapture(base64, file.type || 'image/jpeg');
+          e.target.value = '';
         }}
       />
 
-      {/* ── Scan card button (closed state) ── */}
+      {/* ── Scan card button (closed) ── */}
       {!open && (
         <button
           type="button"
@@ -121,10 +104,8 @@ export default function ScanButton({ onImageCapture, isScanning = false }: ScanB
         >
           <div className="flex items-center justify-between px-5 py-5 gap-4">
             <div className="flex items-center gap-4 flex-1 min-w-0">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
-                style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}
-              >
+              <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
+                style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
                 <CameraIcon />
               </div>
               <div className="min-w-0">
@@ -135,13 +116,10 @@ export default function ScanButton({ onImageCapture, isScanning = false }: ScanB
               </div>
             </div>
             <div className="hidden lg:flex items-center gap-2 shrink-0">
-              <div
-                className="flex items-center gap-2 px-4 py-3 rounded-xl text-white font-semibold text-[15px]"
-                style={{ backgroundColor: 'rgba(0,0,0,0.18)' }}
-              >
-                Open camera <span className="text-[18px]">→</span>
+              <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-white font-semibold text-[15px]"
+                style={{ backgroundColor: 'rgba(0,0,0,0.18)' }}>
+                Open camera →
               </div>
-              {/* Upload button — triggers the hidden file input */}
               <div
                 role="button"
                 onClick={e => { e.stopPropagation(); document.getElementById('pill-file-input')?.click(); }}
@@ -155,48 +133,63 @@ export default function ScanButton({ onImageCapture, isScanning = false }: ScanB
         </button>
       )}
 
-      {/* ── Full-screen viewfinder (open state) ── */}
+      {/* ── Full-screen viewfinder ── */}
       {open && (
         <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-
-          {/* Live video — fills the screen */}
           <video
             ref={videoRef}
-            autoPlay
-            playsInline
-            muted
+            autoPlay playsInline muted
             className="absolute inset-0 w-full h-full object-cover"
           />
 
-          {/* Dark vignette so the scan frame stands out */}
+          {/* Dim overlay */}
           <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
 
-          {/* Scan frame — changes color while Claude is analyzing */}
-          <div className="relative z-10 flex flex-col items-center gap-4">
-            <div
-              className="w-72 h-48 rounded-2xl transition-colors duration-300"
-              style={{
-                border: `2.5px solid ${isScanning ? '#FBBF24' : 'white'}`,
-                boxShadow: isScanning
-                  ? '0 0 0 4px rgba(251,191,36,0.25)'
-                  : '0 0 0 4px rgba(255,255,255,0.15)',
-              }}
-            />
+          <div className="relative z-10 flex flex-col items-center gap-5">
+            {/* Scan box with pulsing amber glow */}
+            <div className="relative">
+              {/* Breathing glow behind the box */}
+              <div
+                className="absolute inset-0 rounded-2xl animate-pulse"
+                style={{ backgroundColor: glowColor, transition: 'background-color 0.3s ease' }}
+              />
+              {/* The box itself */}
+              <div
+                className="relative rounded-2xl"
+                style={{
+                  width:  'min(92vw, 580px)',
+                  height: 'min(64vw, 380px)',
+                  border: `2.5px solid ${borderColor}`,
+                  transition: 'border-color 0.3s ease',
+                }}
+              />
+            </div>
 
-            {/* Status text below the frame */}
-            <div className="flex items-center gap-2">
-              {isScanning && <Spinner />}
-              <p className="text-white text-[15px] font-semibold drop-shadow">
-                {isScanning ? 'Analyzing label...' : 'Point at the pill bottle label'}
+            {/* Status pill */}
+            <div
+              className="flex items-center gap-2.5 px-5 py-2.5 rounded-full"
+              style={{
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(8px)',
+                border: `1px solid ${borderColor}`,
+                transition: 'border-color 0.3s ease',
+                minWidth: 180,
+                justifyContent: 'center',
+              }}
+            >
+              {!isSuccess && <ScanSpinner color={labelColor} />}
+              {isSuccess  && <CheckDot />}
+              <p className="text-[15px] font-bold" style={{ color: labelColor, transition: 'color 0.3s ease' }}>
+                {statusText}
               </p>
             </div>
           </div>
 
-          {/* Close button — top right */}
+          {/* Close */}
           <button
             onClick={closeCamera}
             className="absolute top-6 right-6 z-20 w-11 h-11 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'rgba(0,0,0,0.5)', color: 'white', fontSize: '20px' }}
+            style={{ backgroundColor: 'rgba(0,0,0,0.55)', color: 'white', fontSize: '20px' }}
           >
             ✕
           </button>
@@ -206,7 +199,7 @@ export default function ScanButton({ onImageCapture, isScanning = false }: ScanB
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -215,6 +208,24 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+function ScanSpinner({ color }: { color: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 22 22" fill="none" className="animate-spin shrink-0">
+      <circle cx="11" cy="11" r="9" stroke={color} strokeWidth="2" strokeOpacity="0.3" />
+      <path d="M11 2C6.03 2 2 6.03 2 11" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CheckDot() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="shrink-0">
+      <circle cx="9" cy="9" r="8" fill="rgba(74,222,128,0.2)" stroke="#4ADE80" strokeWidth="1.5" />
+      <path d="M5.5 9L7.5 11L12.5 6.5" stroke="#4ADE80" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function UploadIcon() {
@@ -230,20 +241,9 @@ function UploadIcon() {
 function CameraIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M23 19C23 20.1 22.1 21 21 21H3C1.9 21 1 20.1 1 19V8C1 6.9 1.9 6 3 6H7L9 3H15L17 6H21C22.1 6 23 6.9 23 8V19Z"
-        stroke="white" strokeWidth="1.5" strokeLinejoin="round"
-      />
+      <path d="M23 19C23 20.1 22.1 21 21 21H3C1.9 21 1 20.1 1 19V8C1 6.9 1.9 6 3 6H7L9 3H15L17 6H21C22.1 6 23 6.9 23 8V19Z"
+        stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
       <circle cx="12" cy="13" r="4" stroke="white" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function Spinner() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 22 22" fill="none" className="animate-spin">
-      <circle cx="11" cy="11" r="9" stroke="white" strokeWidth="2" strokeOpacity="0.3" />
-      <path d="M11 2C6.03 2 2 6.03 2 11" stroke="white" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }

@@ -53,7 +53,7 @@ export async function subscribeToPush(userId: string): Promise<void> {
     const existing = await reg.pushManager.getSubscription();
     const sub      = existing ?? await reg.pushManager.subscribe({
       userVisibleOnly:      true,
-      applicationServerKey: _urlBase64ToUint8Array(vapidKey),
+      applicationServerKey: _urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
     });
 
     await fetch('http://localhost:8000/push/subscribe', {

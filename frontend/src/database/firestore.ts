@@ -31,10 +31,59 @@ export async function saveUserProfile(uid: string, data: { displayName: string; 
   });
 }
 
+export interface DetailedMed {
+  name: string;
+  dosage: string;
+  frequency: string;
+}
+
+export interface HealthProfile {
+  displayName: string;
+  email: string;
+  age: string;
+  sex: string;
+  weightLbs: string;
+  conditions: string[];           // predefined + custom
+  currentMeds: string[];          // simple name list (onboarding legacy)
+  currentMedsDetailed?: DetailedMed[]; // full med cards from Profile page
+  allergies: string[];
+  otherAllergies: string;
+  lifestyle: string[];            // legacy
+  diet: string;                   // legacy
+  // Structured lifestyle — used for tailored advice generation
+  alcoholUse?: string;            // 'none' | 'occasionally' | 'daily'
+  tobaccoUse?: string;            // 'non-smoker' | 'former' | 'current'
+  exerciseLevel?: string;         // 'sedentary' | 'light' | 'moderate' | 'active'
+  dietRestrictions?: string[];    // ['Low sodium', 'Vegan', ...]
+  grapefruitConsumer?: boolean;
+  takesSupplements?: boolean;
+  reminderPref: string;
+  reminderEmail: string;
+  onboardingComplete: boolean;
+}
+
+export async function saveHealthProfile(uid: string, profile: HealthProfile) {
+  await setDoc(doc(db, 'users', uid, 'profile', 'data'), {
+    ...profile,
+    onboardingComplete: true,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function getUserProfile(uid: string): Promise<HealthProfile | null> {
+  const snap = await getDoc(doc(db, 'users', uid, 'profile', 'data'));
+  return snap.exists() ? (snap.data() as HealthProfile) : null;
+}
+
 // ─── Medications ──────────────────────────────────────────────────────────────
 
+// Firestore doc IDs cannot contain '/' — replace with '-' to keep names readable
+function toDocId(genericName: string): string {
+  return genericName.replace(/\//g, '-').trim();
+}
+
 export async function saveMed(uid: string, med: MedData, notes = '', reminderTime = '') {
-  await setDoc(doc(db, 'users', uid, 'meds', med.generic_name), {
+  await setDoc(doc(db, 'users', uid, 'meds', toDocId(med.generic_name)), {
     ...med,
     notes,
     reminderTime,
@@ -43,16 +92,20 @@ export async function saveMed(uid: string, med: MedData, notes = '', reminderTim
 }
 
 export async function getMed(uid: string, genericName: string): Promise<(MedData & { notes: string; reminderTime: string }) | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'meds', genericName));
+  const snap = await getDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)));
   return snap.exists() ? (snap.data() as MedData & { notes: string; reminderTime: string }) : null;
 }
 
 export async function updateMedNotes(uid: string, genericName: string, notes: string) {
-  await updateDoc(doc(db, 'users', uid, 'meds', genericName), { notes });
+  await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), { notes });
+}
+
+export async function removeMed(uid: string, genericName: string) {
+  await deleteDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)));
 }
 
 export async function updateMedReminderTime(uid: string, genericName: string, reminderTime: string) {
-  await updateDoc(doc(db, 'users', uid, 'meds', genericName), { reminderTime });
+  await updateDoc(doc(db, 'users', uid, 'meds', toDocId(genericName)), { reminderTime });
 }
 
 // Real-time listener — calls cb whenever the user's med list changes
