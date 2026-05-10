@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MedData, ConflictResult } from '../types';
 import ConflictAlert from '../components/ConflictAlert';
-import { scanPillBottle } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { onMedsChanged, updateMedNotes, seedDemoData, saveMed } from '../database/firestore';
+import { onMedsChanged, updateMedNotes, seedDemoData } from '../database/firestore';
 
 // ─── Mock conflicts (until conflict checker is wired to Claude) ───────────────
 
@@ -41,12 +40,8 @@ export default function Medications() {
   const [pressedIndex, setPressedIndex]   = useState<number | null>(null);
   const [viewMode, setViewMode]           = useState<'stack' | 'list'>('stack');
   const [showAddMenu, setShowAddMenu]     = useState(false);
-  const [scanning, setScanning]           = useState(false);
-  const [scanError, setScanError]         = useState<string | null>(null);
   const navigate   = useNavigate();
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const cameraRef  = useRef<HTMLInputElement>(null);
-  const uploadRef  = useRef<HTMLInputElement>(null);
 
   const notesMap = Object.fromEntries(meds.map(m => [m.generic_name, m.notes ?? '']));
 
@@ -77,25 +72,6 @@ export default function Medications() {
     document.addEventListener('mousedown', onOutsideClick);
     return () => document.removeEventListener('mousedown', onOutsideClick);
   }, [showAddMenu]);
-
-  async function handleImageCapture(file: File) {
-    setShowAddMenu(false);
-    setScanning(true);
-    setScanError(null);
-    try {
-      const base64 = await fileToBase64(file);
-      const med = await scanPillBottle(base64, file.type || 'image/jpeg');
-      sessionStorage.setItem('lastScan', JSON.stringify(med));
-      if (user) await saveMed(user.uid, med);
-      navigate('/pill-card');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Scan failed. Please try again.';
-      setScanError(msg);
-      console.error('[Pill Pal] Scan error from Medications:', err);
-    } finally {
-      setScanning(false);
-    }
-  }
 
   async function handleNotesChange(genericName: string, text: string) {
     // Optimistic local update so typing feels instant
@@ -152,23 +128,6 @@ export default function Medications() {
     <div className="min-h-screen pb-24 lg:pb-8 px-4 pt-10 lg:pt-12" style={{ backgroundColor: '#F5F8FF' }}>
       <div className="w-full max-w-[520px] mx-auto">
 
-        {/* Hidden file inputs */}
-        <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleImageCapture(f); e.target.value = ''; }}
-        />
-        <input
-          ref={uploadRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleImageCapture(f); e.target.value = ''; }}
-        />
-
         {/* Header */}
         <header className="mb-5">
           <div className="flex items-start justify-between gap-3">
@@ -184,21 +143,13 @@ export default function Medications() {
               <button
                 type="button"
                 onClick={() => setShowAddMenu(v => !v)}
-                disabled={scanning}
-                className="flex items-center gap-1.5 px-3.5 rounded-full font-semibold text-[14px] text-white disabled:opacity-60 transition-transform active:scale-95"
+                className="flex items-center gap-1.5 px-3.5 rounded-full font-semibold text-[14px] text-white transition-transform active:scale-95"
                 style={{ backgroundColor: '#185FA5', height: 36 }}
               >
-                {scanning ? (
-                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="5.5" stroke="white" strokeWidth="1.6" strokeOpacity="0.3" />
-                    <path d="M7 1.5C4 1.5 1.5 4 1.5 7" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                )}
-                {scanning ? 'Scanning…' : 'Add'}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 2V12M2 7H12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                Add
               </button>
 
               {/* Dropdown */}
@@ -227,34 +178,10 @@ export default function Medications() {
                   sub="Type in med details"
                   onClick={() => { setShowAddMenu(false); console.log('[Pill Pal] Manual add — coming soon'); }}
                 />
-                <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 14px' }} />
-                <AddMenuOption
-                  icon={<UploadMenuIcon />}
-                  label="Upload photo"
-                  sub="From your camera roll"
-                  onClick={() => { setShowAddMenu(false); uploadRef.current?.click(); }}
-                />
-                <div style={{ height: '0.5px', backgroundColor: '#D6E4F7', margin: '0 14px' }} />
-                <AddMenuOption
-                  icon={<CameraMenuIcon />}
-                  label="Camera"
-                  sub="Point at pill bottle"
-                  onClick={() => { setShowAddMenu(false); cameraRef.current?.click(); }}
-                />
               </div>
             </div>
           </div>
         </header>
-
-        {/* Scan error banner */}
-        {scanError && (
-          <div className="rounded-[14px] px-4 py-3 flex items-center gap-3 mb-2"
-            style={{ backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5' }}>
-            <span className="text-[16px]">⚠️</span>
-            <p className="text-[13px] font-medium flex-1" style={{ color: '#991B1B' }}>{scanError}</p>
-            <button type="button" onClick={() => setScanError(null)} style={{ color: '#991B1B' }}>✕</button>
-          </div>
-        )}
 
         {/* Loading state */}
         {medsLoading && (
@@ -594,15 +521,6 @@ function BackRow({ label, value, sub }: { label: string; value: string; sub?: st
 
 // ─── Add-menu helpers ─────────────────────────────────────────────────────────
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
 function AddMenuOption({
   icon, label, sub, onClick,
 }: {
@@ -638,25 +556,6 @@ function PencilMenuIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
       <path d="M13 2L16 5L6 15H3V12L13 2Z" stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
-function UploadMenuIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M9 2V11M5.5 5.5L9 2L12.5 5.5" stroke="#185FA5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 13V15C3 15.55 3.45 16 4 16H14C14.55 16 15 15.55 15 15V13" stroke="#185FA5" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CameraMenuIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M17 14C17 14.8 16.3 15.5 15.5 15.5H2.5C1.7 15.5 1 14.8 1 14V6C1 5.2 1.7 4.5 2.5 4.5H5L6.5 2.5H11.5L13 4.5H15.5C16.3 4.5 17 5.2 17 6V14Z"
-        stroke="#185FA5" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx="9" cy="9.5" r="2.5" stroke="#185FA5" strokeWidth="1.5" />
     </svg>
   );
 }

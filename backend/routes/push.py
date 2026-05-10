@@ -27,3 +27,18 @@ async def subscribe(req: SubscribeRequest):
       .collection("push_subscriptions").document("main") \
       .set(req.subscription.model_dump())
     return {"ok": True}
+
+
+@router.get("/push/test/{user_id}")
+async def test_push(user_id: str):
+    from services.notifications.push import send_push
+    subs = [
+        s.to_dict()
+        for s in db.collection("users").document(user_id)
+                   .collection("push_subscriptions").stream()
+    ]
+    if not subs:
+        return {"ok": False, "reason": "no subscription found — visit Settings page first"}
+    for sub in subs:
+        send_push(sub, "Test from Pal 💊", "Notifications are working!")
+    return {"ok": True, "sent_to": len(subs)}
